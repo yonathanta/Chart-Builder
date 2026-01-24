@@ -45,6 +45,7 @@ const barConfig = ref({
   showGridlines: true,
   showValues: true,
   xLabelOffset: 0,
+  xLabelRotation: 0,
   yLabelOffset: 0,
   labelAlignment: 'left',
   separateLabelLine: false,

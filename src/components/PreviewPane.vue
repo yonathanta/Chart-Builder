@@ -96,6 +96,17 @@ const visibleFilterValues = computed(() => {
   return term ? all.filter(v => v.toLowerCase().includes(term)) : all;
 });
 
+function humanizeValue(val: unknown): string {
+  const num = Number(val);
+  if (!Number.isFinite(num)) return String(val ?? "");
+  const abs = Math.abs(num);
+  const format = (n: number, suffix: string) => `${+(n.toFixed(1))}${suffix}`;
+  if (abs >= 1_000_000_000) return format(num / 1_000_000_000, 'B');
+  if (abs >= 1_000_000) return format(num / 1_000_000, 'M');
+  if (abs >= 1_000) return format(num / 1_000, 'K');
+  return `${num}`;
+}
+
 function openValueFilter(col: string, event?: MouseEvent) {
   openFilterCol.value = openFilterCol.value === col ? null : col;
   valueFilterSearch.value = "";
@@ -219,7 +230,7 @@ async function loadAndRender() {
       if (seriesField && props.selectedYears && props.selectedYears.length) {
         renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
       }
-      renderBarChart(svg, props.spec, renderRows, props.barConfig);
+      renderBarChart(svg, props.spec, renderRows, { ...props.barConfig, numberFormat: props.barConfig?.numberFormat ?? '~s' });
       status.value = "Rendered bar chart";
     } else if (props.spec.type === "line") {
       // Hide the bar SVG and render line into the frame container
@@ -250,7 +261,7 @@ async function loadAndRender() {
         xTicks: props.lineConfig?.xTicks ?? 6,
         yTicks: props.lineConfig?.yTicks ?? 5,
         xTickFormat: props.lineConfig?.xTickFormat,
-        yTickFormat: props.lineConfig?.yTickFormat,
+        yTickFormat: props.lineConfig?.yTickFormat ?? '~s',
         showGrid: props.lineConfig?.showGrid ?? true,
         tooltip: props.lineConfig?.tooltip ?? true,
         tooltipFormat: props.lineConfig?.tooltipFormat ?? ((d: any) => {
@@ -307,7 +318,7 @@ async function loadAndRender() {
         xTicks: props.areaConfig?.xTicks ?? 6,
         yTicks: props.areaConfig?.yTicks ?? 5,
         xTickFormat: props.areaConfig?.xTickFormat,
-        yTickFormat: props.areaConfig?.yTickFormat,
+        yTickFormat: props.areaConfig?.yTickFormat ?? '~s',
         axisColor: props.areaConfig?.axisColor ?? '#cbd5e1',
         showGrid: props.areaConfig?.showGrid ?? true,
         gridColor: props.areaConfig?.gridColor ?? '#e2e8f0',
@@ -462,7 +473,7 @@ function renderWithCurrentRows() {
     if (seriesField && props.selectedYears && props.selectedYears.length) {
       renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
     }
-    renderBarChart(svgRef.value, props.spec, renderRows, props.barConfig);
+    renderBarChart(svgRef.value, props.spec, renderRows, { ...props.barConfig, numberFormat: props.barConfig?.numberFormat ?? '~s' });
   } else if (props.spec.type === "line" && frameRef.value) {
     if (lineChart) { lineChart.destroy(); lineChart = null; }
     const xKey = props.spec.encoding.category.field;
@@ -484,7 +495,7 @@ function renderWithCurrentRows() {
       xTicks: props.lineConfig?.xTicks ?? 6,
       yTicks: props.lineConfig?.yTicks ?? 5,
       xTickFormat: props.lineConfig?.xTickFormat,
-      yTickFormat: props.lineConfig?.yTickFormat,
+      yTickFormat: props.lineConfig?.yTickFormat ?? '~s',
       showGrid: props.lineConfig?.showGrid ?? true,
       tooltip: props.lineConfig?.tooltip ?? true,
       showPoints: props.lineConfig?.showPoints ?? true,
@@ -526,7 +537,7 @@ function renderWithCurrentRows() {
       xTicks: props.areaConfig?.xTicks ?? 6,
       yTicks: props.areaConfig?.yTicks ?? 5,
       xTickFormat: props.areaConfig?.xTickFormat,
-      yTickFormat: props.areaConfig?.yTickFormat,
+      yTickFormat: props.areaConfig?.yTickFormat ?? '~s',
       axisColor: props.areaConfig?.axisColor ?? '#cbd5e1',
       showGrid: props.areaConfig?.showGrid ?? true,
       gridColor: props.areaConfig?.gridColor ?? '#e2e8f0',
@@ -535,7 +546,7 @@ function renderWithCurrentRows() {
       pointColor: props.areaConfig?.pointColor ?? '#1d4ed8',
       pointStroke: props.areaConfig?.pointStroke ?? '#ffffff',
       tooltip: props.areaConfig?.tooltip ?? true,
-      tooltipFormat: props.areaConfig?.tooltipFormat,
+      tooltipFormat: props.areaConfig?.tooltipFormat ?? ((d: any) =>d[yKey]),
       hoverLine: props.areaConfig?.hoverLine ?? true,
       hoverColor: props.areaConfig?.hoverColor ?? '#94a3b8',
       focusCircle: props.areaConfig?.focusCircle ?? true,

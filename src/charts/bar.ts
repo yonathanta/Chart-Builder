@@ -10,6 +10,7 @@ export type BuilderBarConfig = {
   showGridlines?: boolean;
   showValues?: boolean;
   xLabelOffset?: number;
+  xLabelRotation?: number;
   yLabelOffset?: number;
   labelAlignment?: 'left' | 'right';
   separateLabelLine?: boolean;
@@ -83,6 +84,7 @@ export function renderBarChart(
     showGridlines: config.showGridlines ?? true,
     showValues: config.showValues ?? true,
     xLabelOffset: config.xLabelOffset ?? 0,
+    xLabelRotation: config.xLabelRotation ?? 0,
     yLabelOffset: config.yLabelOffset ?? 0,
     labelAlignment: config.labelAlignment ?? 'left',
     separateLabelLine: config.separateLabelLine ?? false,
@@ -165,6 +167,18 @@ export function renderBarChart(
     .data([null])
     .join('g')
     .attr('class', 'overlays');
+
+  // Compact number formatter for display (labels + tooltip)
+  const humanizeValue = (val: unknown) => {
+    const num = Number(val);
+    if (!Number.isFinite(num)) return String(val ?? '');
+    const abs = Math.abs(num);
+    const fmt = (n: number, suffix: string) => `${+(n.toFixed(1))}${suffix}`;
+    if (abs >= 1_000_000_000) return fmt(num / 1_000_000_000, 'B');
+    if (abs >= 1_000_000) return fmt(num / 1_000_000, 'M');
+    if (abs >= 1_000) return fmt(num / 1_000, 'K');
+    return `${num}`;
+  };
 
   // Tooltip element for hover
   let tooltipEl: HTMLDivElement | null = null;
@@ -481,9 +495,10 @@ export function renderBarChart(
         .duration(cfg.animationDuration / 2)
         .attr('fill', colorDarken(base));
       if (tooltipEl) {
-        const val = Number(d[valueKey]);
+        const val = d[valueKey];
         const seriesVal = seriesKey ? d[seriesKey] : undefined;
-        const content = `${seriesVal !== undefined ? `<div><strong>${String(seriesVal)}</strong></div>` : ''}<div>Value: ${d3.format(cfg.numberFormat)(val)}</div>`;
+        const tooltipVal = val;
+        const content = `${seriesVal !== undefined ? `<div><strong>${String(seriesVal)}</strong></div>` : ''}<div>Value: ${tooltipVal}</div>`;
         const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
         tooltipEl.style.left = `${event.clientX - rect.left}px`;
         tooltipEl.style.top = `${event.clientY - rect.top}px`;
@@ -521,7 +536,7 @@ export function renderBarChart(
     .transition(transitionBase)
     .delay((_, i) => i * cfg.staggerDelay)
     .text(d => {
-      const val = fmt(Number(d[valueKey]));
+      const val = humanizeValue(d[valueKey]);
       const cat = String(d[categoryKey]);
       const text = cfg.swapLabelsAndValues ? cat : val;
       return overrides?.[barId(d)]?.label ?? text;
@@ -643,14 +658,18 @@ export function renderBarChart(
     return custom ? `${cat}: ${value} (${custom})` : `${cat}: ${value}`;
   });
 
-  // Adjust category label offset on the category axis (both orientations).
-  if (orientation === 'vertical') {
-    xAxisLayer.selectAll('text').attr('dy', `${cfg.xLabelOffset}px`);
-    yAxisLayer.selectAll('text').attr('dy', `${cfg.yLabelOffset}px`);
-  } else {
-    xAxisLayer.selectAll('text').attr('dy', `${cfg.xLabelOffset}px`);
-    yAxisLayer.selectAll('text').attr('dy', `${cfg.yLabelOffset}px`);
-  }
+  const xLabelRotation = cfg.xLabelRotation ?? 0;
+  const xLabelAnchor = xLabelRotation === 0 ? 'middle' : xLabelRotation > 0 ? 'start' : 'end';
+
+  xAxisLayer
+    .selectAll<SVGTextElement, unknown>('text')
+    .attr('dy', `${cfg.xLabelOffset}px`)
+    .attr('transform', xLabelRotation ? `rotate(${xLabelRotation})` : null)
+    .style('text-anchor', xLabelAnchor);
+
+  yAxisLayer
+    .selectAll<SVGTextElement, unknown>('text')
+    .attr('dy', `${cfg.yLabelOffset}px`);
 
   /* ============================
      SMALL MULTIPLES FACETING
@@ -765,8 +784,15 @@ export function renderBarChart(
         .style('font-size', '11px')
         .style('opacity', 0.9);
 
-      xLayer.selectAll('text').attr('dy', `${cfg.xLabelOffset}px`);
-      yLayer.selectAll('text').attr('dy', `${cfg.yLabelOffset}px`);
+      xLayer
+        .selectAll<SVGTextElement, unknown>('text')
+        .attr('dy', `${cfg.xLabelOffset}px`)
+        .attr('transform', xLabelRotation ? `rotate(${xLabelRotation})` : null)
+        .style('text-anchor', xLabelAnchor);
+
+      yLayer
+        .selectAll<SVGTextElement, unknown>('text')
+        .attr('dy', `${cfg.yLabelOffset}px`);
 
       bars.attr('aria-label', d => {
         const custom = overrides?.[`${d[categoryKey]}-${facetKey}`]?.label;

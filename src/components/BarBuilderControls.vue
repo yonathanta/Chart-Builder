@@ -10,6 +10,7 @@ export type BarBuilderConfig = {
   showGridlines: boolean;
   showValues: boolean;
   xLabelOffset: number;
+  xLabelRotation: number;
   yLabelOffset: number;
   // New options
   labelAlignment: "left" | "right";
@@ -93,6 +94,11 @@ const showValues = computed({
 const xLabelOffset = computed({
   get: () => props.config.xLabelOffset,
   set: (v: number) => emit("update:config", { ...props.config, xLabelOffset: v }),
+});
+
+const xLabelRotation = computed({
+  get: () => props.config.xLabelRotation,
+  set: (v: number) => emit("update:config", { ...props.config, xLabelRotation: v }),
 });
 
 const yLabelOffset = computed({
@@ -373,6 +379,19 @@ function deleteOverlay(id: string) {
           @input="xLabelOffset = Number(($event.target as HTMLInputElement).value)"
         />
         <small class="muted">{{ xLabelOffset }} px</small>
+      </label>
+
+      <label class="form-field">
+        <span>X label rotation (deg)</span>
+        <input
+          type="range"
+          min="-90"
+          max="90"
+          step="5"
+          :value="xLabelRotation"
+          @input="xLabelRotation = Number(($event.target as HTMLInputElement).value)"
+        />
+        <small class="muted">{{ xLabelRotation }} deg</small>
       </label>
 
       <label class="form-field">
