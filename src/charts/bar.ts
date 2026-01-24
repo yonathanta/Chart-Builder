@@ -21,6 +21,17 @@ export type BuilderBarConfig = {
   valueMin?: number;
   valueMax?: number;
   customizeColors?: boolean;
+  // Gradient coloring across min/max values
+  useGradientColors?: boolean;
+  gradientLowColor?: string;
+  gradientHighColor?: string;
+  // Value-based coloring
+  useValueColors?: boolean;
+  lowThreshold?: number;
+  highThreshold?: number;
+  lowColor?: string;
+  midColor?: string;
+  highColor?: string;
   separatingLines?: boolean;
   barBackground?: boolean;
   thickerBars?: boolean;
@@ -92,9 +103,18 @@ export function renderBarChart(
     numberFormat: config.numberFormat ?? ',.2~f',
     swapLabelsAndValues: config.swapLabelsAndValues ?? false,
     replaceCodesWithFlags: config.replaceCodesWithFlags ?? false,
-    valueMin: config.valueMin ?? undefined,
-    valueMax: config.valueMax ?? undefined,
+    valueMin: (config.valueMin ?? undefined) as unknown as number,
+    valueMax: (config.valueMax ?? undefined) as unknown as number,
     customizeColors: config.customizeColors ?? false,
+    useGradientColors: config.useGradientColors ?? false,
+    gradientLowColor: config.gradientLowColor ?? '#a7f3d0',
+    gradientHighColor: config.gradientHighColor ?? '#065f46',
+    useValueColors: config.useValueColors ?? false,
+    lowThreshold: config.lowThreshold ?? 10,
+    highThreshold: config.highThreshold ?? 90,
+    lowColor: config.lowColor ?? '#a7f3d0',
+    midColor: config.midColor ?? '#34d399',
+    highColor: config.highColor ?? '#065f46',
     separatingLines: config.separatingLines ?? false,
     barBackground: config.barBackground ?? false,
     thickerBars: config.thickerBars ?? false,
@@ -355,33 +375,41 @@ export function renderBarChart(
   }
 
   // Gridlines join; fade instead of remove to respect toggle changes.
-  const gridAxis = orientation === 'vertical'
-    ? d3.axisLeft(valueLinear).tickSize(-innerWidth).tickFormat(() => '')
-    : d3.axisBottom(valueLinear).tickSize(-innerHeight).tickFormat(() => '');
-
   const grid = gridLayer
     .selectAll<SVGGElement, unknown>('g.grid')
     .data([null])
     .join('g')
     .attr('class', 'grid');
 
-  const gridTransform = orientation === 'vertical'
-    ? `translate(0,0)`
-    : `translate(0,${innerHeight})`;
+  const gridTransform = `translate(0,0)`;
 
   // Avoid animating gridlines when flipping orientation to prevent shearing.
   grid.interrupt();
-  grid
-    .attr('transform', gridTransform)
-    .call(gridAxis as any);
+  grid.attr('transform', gridTransform);
+
+  // Draw straight gridlines using value ticks to avoid skew in horizontal mode.
+  const gridTicks = valueLinear.ticks(6);
+  const gridLines = grid
+    .selectAll<SVGLineElement, number>('line.value-grid')
+    .data(gridTicks)
+    .join('line')
+    .attr('class', 'value-grid')
+    .attr('stroke', '#cbd5e1')
+    .attr('stroke-width', 1);
+
+  gridLines
+    .attr('x1', t => orientation === 'vertical' ? 0 : valueLinear(t))
+    .attr('x2', t => orientation === 'vertical' ? innerWidth : valueLinear(t))
+    .attr('y1', t => orientation === 'vertical' ? valueLinear(t) : innerHeight)
+    .attr('y2', t => orientation === 'vertical' ? valueLinear(t) : 0);
 
   if (animation && !orientationChanged) {
-    grid
+    gridLines
       .transition()
       .duration(cfg.animationDuration)
       .style('opacity', cfg.showGridlines ? 1 : 0.05);
   } else {
-    grid.style('opacity', cfg.showGridlines ? 1 : 0.05);
+    gridLines.style('opacity', cfg.showGridlines ? 1 : 0.05);
   }
 
   barBackgroundLayer
@@ -398,6 +426,13 @@ export function renderBarChart(
      7. BARS + INTERACTIONS
      ============================ */
 
+  const gradientScale = cfg.useGradientColors
+    ? d3.scaleLinear<string>()
+        .domain(valueLinear.domain() as [number, number])
+        .range([cfg.gradientLowColor, cfg.gradientHighColor])
+        .clamp(true)
+    : null;
+
   const palette = (style.palette as string[] | undefined) || undefined;
   const colorScale = cfg.customizeColors && palette?.length
     ? d3.scaleOrdinal<string, string>().domain(categories.map(String)).range(palette)
@@ -413,7 +448,26 @@ export function renderBarChart(
 
   const barId = (d: any) => (seriesKey ? `${d[categoryKey]}-${d[seriesKey]}` : `${d[categoryKey]}`);
 
-  const resolveColor = (d: any) => overrides?.[barId(d)]?.color ?? (colorScale ? colorScale(String(d[categoryKey])) : cfg.barColor);
+  const resolveColor = (d: any) => {
+    const override = overrides?.[barId(d)]?.color;
+    if (override) return override;
+    if (gradientScale) {
+      const v = Number(d[valueKey]);
+      if (Number.isFinite(v)) return gradientScale(v);
+    }
+    // Value-based coloring takes precedence when enabled
+    if (cfg.useValueColors) {
+      const v = Number(d[valueKey]);
+      if (Number.isFinite(v)) {
+        if (v < (cfg.lowThreshold ?? 0)) return cfg.lowColor || cfg.barColor;
+        if (v > (cfg.highThreshold ?? 0)) return cfg.highColor || cfg.barColor;
+        return cfg.midColor || cfg.barColor;
+      }
+    }
+    // Otherwise use category palette when available
+    if (colorScale) return colorScale(String(d[categoryKey]));
+    return cfg.barColor;
+  };
 
   const barX = (d: any) =>
     orientation === 'vertical'
@@ -727,10 +781,22 @@ export function renderBarChart(
         .data([null])
         .join('g')
         .attr('class', 'facet-grid')
-        .attr('transform', `translate(0,0)`)
-        .call(d3.axisLeft(yFacet).tickSize(-innerWidth).tickFormat(() => '') as any);
+        .attr('transform', `translate(0,0)`);
 
-      grid
+      const gridTicks = yFacet.ticks(4);
+      const gridLines = grid
+        .selectAll<SVGLineElement, number>('line.value-grid')
+        .data(gridTicks)
+        .join('line')
+        .attr('class', 'value-grid')
+        .attr('stroke', '#cbd5e1')
+        .attr('stroke-width', 1)
+        .attr('x1', 0)
+        .attr('x2', innerWidth)
+        .attr('y1', t => yFacet(t))
+        .attr('y2', t => yFacet(t));
+
+      gridLines
         .transition()
         .duration(animation ? cfg.animationDuration : 0)
         .style('opacity', cfg.showGridlines ? 1 : 0.05);

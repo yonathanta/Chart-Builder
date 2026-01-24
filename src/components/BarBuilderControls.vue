@@ -22,6 +22,17 @@ export type BarBuilderConfig = {
   valueMin?: number;
   valueMax?: number;
   customizeColors: boolean;
+  // Gradient coloring across min/max
+  useGradientColors: boolean;
+  gradientLowColor?: string;
+  gradientHighColor?: string;
+  // Value-based coloring
+  useValueColors: boolean;
+  lowThreshold?: number;
+  highThreshold?: number;
+  lowColor?: string;
+  midColor?: string;
+  highColor?: string;
   separatingLines: boolean;
   barBackground: boolean;
   thickerBars: boolean;
@@ -151,6 +162,51 @@ const customizeColors = computed({
   set: (v: boolean) => emit("update:config", { ...props.config, customizeColors: v }),
 });
 
+const useGradientColors = computed({
+  get: () => props.config.useGradientColors,
+  set: (v: boolean) => emit("update:config", { ...props.config, useGradientColors: v }),
+});
+
+const gradientLowColor = computed({
+  get: () => props.config.gradientLowColor ?? '#a7f3d0',
+  set: (v: string) => emit("update:config", { ...props.config, gradientLowColor: v }),
+});
+
+const gradientHighColor = computed({
+  get: () => props.config.gradientHighColor ?? '#065f46',
+  set: (v: string) => emit("update:config", { ...props.config, gradientHighColor: v }),
+});
+
+const useValueColors = computed({
+  get: () => props.config.useValueColors,
+  set: (v: boolean) => emit("update:config", { ...props.config, useValueColors: v }),
+});
+
+const lowThreshold = computed<number>({
+  get: () => props.config.lowThreshold ?? 10,
+  set: (v: number) => emit("update:config", { ...props.config, lowThreshold: v }),
+});
+
+const highThreshold = computed<number>({
+  get: () => props.config.highThreshold ?? 90,
+  set: (v: number) => emit("update:config", { ...props.config, highThreshold: v }),
+});
+
+const lowColor = computed({
+  get: () => props.config.lowColor ?? '#a7f3d0',
+  set: (v: string) => emit("update:config", { ...props.config, lowColor: v }),
+});
+
+const midColor = computed({
+  get: () => props.config.midColor ?? '#34d399',
+  set: (v: string) => emit("update:config", { ...props.config, midColor: v }),
+});
+
+const highColor = computed({
+  get: () => props.config.highColor ?? '#065f46',
+  set: (v: string) => emit("update:config", { ...props.config, highColor: v }),
+});
+
 const separatingLines = computed({
   get: () => props.config.separatingLines,
   set: (v: boolean) => emit("update:config", { ...props.config, separatingLines: v }),
@@ -267,6 +323,64 @@ function deleteOverlay(id: string) {
           <input type="checkbox" :checked="customizeColors" @change="customizeColors = ($event.target as HTMLInputElement).checked" />
           <span>Customize colors</span>
         </label>
+      </div>
+
+      <div class="form-field">
+        <label class="checkbox">
+          <input type="checkbox" :checked="useGradientColors" @change="useGradientColors = ($event.target as HTMLInputElement).checked" />
+          <span>Color by gradient (min → max value)</span>
+        </label>
+      </div>
+
+      <div v-if="useGradientColors" class="form-field form-field--wide" style="border: 1px dashed #e2e8f0; padding: 8px; border-radius: 6px;">
+        <span>Gradient stops</span>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top:8px;">
+          <label class="form-field">
+            <span>Lowest value color</span>
+            <input type="color" :value="gradientLowColor" @input="gradientLowColor = ($event.target as HTMLInputElement).value" />
+          </label>
+          <label class="form-field">
+            <span>Highest value color</span>
+            <input type="color" :value="gradientHighColor" @input="gradientHighColor = ($event.target as HTMLInputElement).value" />
+          </label>
+        </div>
+        <small class="muted">Interpolates between lowest and highest bar values; overrides palette/value thresholds.</small>
+      </div>
+
+      <div class="form-field">
+        <label class="checkbox">
+          <input type="checkbox" :checked="useValueColors" @change="useValueColors = ($event.target as HTMLInputElement).checked" />
+          <span>Color bars by value (thresholds)</span>
+        </label>
+      </div>
+
+      <div v-if="useValueColors" class="form-field form-field--wide" style="border: 1px dashed #e2e8f0; padding: 8px; border-radius: 6px;">
+        <span>Value-based colors</span>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top:8px;">
+          <label class="form-field">
+            <span>Low threshold (&lt;)</span>
+            <input type="number" :value="lowThreshold ?? 10" @input="lowThreshold = ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined" />
+          </label>
+          <label class="form-field">
+            <span>Low color</span>
+            <input type="color" :value="lowColor" @input="lowColor = ($event.target as HTMLInputElement).value" />
+          </label>
+
+          <label class="form-field">
+            <span>High threshold (&gt;)</span>
+            <input type="number" :value="highThreshold ?? 90" @input="highThreshold = ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined" />
+          </label>
+          <label class="form-field">
+            <span>High color</span>
+            <input type="color" :value="highColor" @input="highColor = ($event.target as HTMLInputElement).value" />
+          </label>
+
+          <label class="form-field">
+            <span>Mid-range color</span>
+            <input type="color" :value="midColor" @input="midColor = ($event.target as HTMLInputElement).value" />
+          </label>
+        </div>
+        <small class="muted">Rule: value &lt; low → low color, low–high → mid, value &gt; high → high color.</small>
       </div>
 
       <div class="form-field">

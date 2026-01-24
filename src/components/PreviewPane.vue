@@ -241,9 +241,6 @@ async function loadAndRender() {
       const xKey = props.spec.encoding.category.field;
       const yKey = props.spec.encoding.value.field;
       const seriesField = props.spec.encoding.series?.field;
-      if (seriesField && props.selectedYears && props.selectedYears.length) {
-        rows.value = rows.value.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
-      }
       const cfg: LineChartConfig = {
         xKey,
         yKey,
@@ -289,9 +286,6 @@ async function loadAndRender() {
       const xKey = props.spec.encoding.category.field;
       const yKey = props.spec.encoding.value.field;
       const seriesField = props.spec.encoding.series?.field;
-      if (seriesField && props.selectedYears && props.selectedYears.length) {
-        rows.value = rows.value.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
-      }
       const cfg: AreaChartConfig = {
         xKey,
         yKey,
@@ -355,13 +349,15 @@ async function loadAndRender() {
 }
 
 onMounted(() => {
+  // Initial fetch on mount
   loadAndRender();
 });
 
+// Spec changes (type/layout/encoding) should only re-render with current rows
 watch(
   () => props.spec,
   () => {
-    loadAndRender();
+    renderWithCurrentRows();
   },
   { deep: true }
 );
@@ -371,14 +367,14 @@ watch(
 watch(
   () => props.spec.layout?.preset,
   () => {
-    loadAndRender();
+    renderWithCurrentRows();
   }
 );
 
 watch(
   () => props.barConfig,
   () => {
-    loadAndRender();
+    renderWithCurrentRows();
   },
   { deep: true }
 );
@@ -386,7 +382,7 @@ watch(
 watch(
   () => props.lineConfig,
   () => {
-    loadAndRender();
+    renderWithCurrentRows();
   },
   { deep: true }
 );
@@ -394,7 +390,24 @@ watch(
 watch(
   () => props.areaConfig,
   () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
+// Only re-fetch when the bound data source changes
+watch(
+  () => props.spec.data?.query?.source,
+  () => {
     loadAndRender();
+  }
+);
+
+// Re-render when year selections change (UI-only)
+watch(
+  () => props.selectedYears,
+  () => {
+    renderWithCurrentRows();
   },
   { deep: true }
 );
@@ -505,7 +518,11 @@ function renderWithCurrentRows() {
       duration: props.lineConfig?.duration ?? 800,
       yDomain: props.lineConfig?.yDomain,
     };
-    const lineRows = filteredRows.value;
+    let lineRows = filteredRows.value;
+    const seriesField = props.spec.encoding.series?.field;
+    if (seriesField && props.selectedYears && props.selectedYears.length) {
+      lineRows = lineRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
+    }
     lineChart = createLineChart(frameRef.value, lineRows, cfg);
   } else if (props.spec.type === "area" && frameRef.value) {
     if (areaChart) { areaChart.destroy(); areaChart = null; }
@@ -555,7 +572,11 @@ function renderWithCurrentRows() {
       easing: undefined,
       sortData: props.areaConfig?.sortData ?? false,
     };
-    const areaRows = filteredRows.value;
+    let areaRows = filteredRows.value;
+    const seriesField = props.spec.encoding.series?.field;
+    if (seriesField && props.selectedYears && props.selectedYears.length) {
+      areaRows = areaRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
+    }
     areaChart = drawAreaChart(frameRef.value, areaRows, cfg);
   }
 }
@@ -644,43 +665,6 @@ onBeforeUnmount(() => {
           </select>
         </label>
       </div>
-
-      <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
-        <div class="form-field">
-          <span>Selected cell</span>
-          <p class="muted" v-if="selectedRow === null || !selectedColumn">None</p>
-          <p v-else class="muted">Row {{ selectedRow + 1 }}, {{ selectedColumn }}</p>
-          <input
-            type="text"
-            :value="editValue"
-            @input="editValue = ($event.target as HTMLInputElement).value"
-            :disabled="selectedRow === null || !selectedColumn"
-          />
-          <button class="pill" type="button" :disabled="selectedRow === null || !selectedColumn" @click="saveCell">Save cell</button>
-        </div>
-
-        <div class="form-field">
-          <span>Add column</span>
-          <input type="text" placeholder="new column" v-model="newColumnName" />
-          <button class="pill" type="button" @click="addColumn">Add column</button>
-        </div>
-
-        <div class="form-field">
-          <span>Rename column</span>
-          <input type="text" placeholder="from" v-model="renameFrom" />
-          <input type="text" placeholder="to" style="margin-top:6px" v-model="renameTo" />
-          <button class="pill" type="button" @click="renameColumnAction">Rename</button>
-        </div>
-
-        <div class="form-field">
-          <span>Rows</span>
-          <div class="pill-group">
-            <button class="pill" type="button" @click="addRow">Add row</button>
-            <button class="pill" type="button" :disabled="selectedRow === null" @click="deleteSelectedRow">Delete selected</button>
-          </div>
-        </div>
-      </div>
-
       <div class="data-table" v-if="columns.length" style="margin-top: 12px; overflow:auto; max-height: 700px; border: 1px solid #e2e8f0; border-radius: 8px; position: relative;">
         <table style="width: 100%; border-collapse: collapse;">
           <thead>
@@ -688,24 +672,24 @@ onBeforeUnmount(() => {
               <th style="position: sticky; top: 0; z-index: 6; background: #f8fafc; text-align: left; padding: 8px; border-bottom: 1px solid #e2e8f0;">#</th>
               <th v-for="col in columns" :key="col" style="position: sticky; top: 0; z-index: 6; background: #f8fafc; text-align: left; padding: 8px; border-bottom: 1px solid #e2e8f0;">
                 <span>{{ col }}</span>
-                <button
-                  class="pill"
-                  type="button"
-                  style="margin-left: 6px; padding: 2px 6px; font-size: 12px;"
-                  :class="{ 'pill--active': isColFiltered(col) }"
-                  @click.stop="openValueFilter(col, $event)"
-                  title="Filter column"
-                >
-                  {{ isColFiltered(col) ? 'Filter*' : 'Filter' }}
-                </button>
-                <Teleport to="body">
+                <span style="position: relative; display: inline-block;">
+                  <button
+                    class="pill"
+                    type="button"
+                    style="margin-left: 6px; padding: 2px 6px; font-size: 12px;"
+                    :class="{ 'pill--active': isColFiltered(col) }"
+                    @click.stop="openValueFilter(col, $event)"
+                    title="Filter column"
+                  >
+                    {{ isColFiltered(col) ? 'Filter*' : 'Filter' }}
+                  </button>
                   <div
                     v-if="openFilterCol === col"
                     :style="{
-                      position: 'fixed',
+                      position: 'absolute',
                       zIndex: 60,
-                      top: filterPosition.top + 'px',
-                      left: filterPosition.left + 'px',
+                      top: 'calc(100% + 6px)',
+                      left: '0px',
                       background: 'white',
                       border: '1px solid #e2e8f0',
                       borderRadius: '6px',
@@ -734,7 +718,7 @@ onBeforeUnmount(() => {
                       <button class="pill" type="button" @click.stop="applyValueFilter">OK</button>
                     </div>
                   </div>
-                </Teleport>
+                </span>
               </th>
             </tr>
             
