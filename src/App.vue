@@ -342,6 +342,7 @@ async function handleExport(format: ExportFormat) {
           :area-config="areaConfig"
           :last-validated="lastValidated"
           @update:fields="updateFields"
+          @update:encoding="updateEncoding"
           @refresh="refreshPreview"
         />
         <div v-if="validationError" class="alert">{{ validationError }}</div>

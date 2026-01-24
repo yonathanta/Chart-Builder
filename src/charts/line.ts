@@ -32,6 +32,7 @@ export type LineChartConfig = {
 
   // Interactivity
   tooltip?: boolean;
+  tooltipFormat?: (d: any) => string;
   showPoints?: boolean;
   pointRadius?: number;
   hoverColor?: string;
@@ -81,6 +82,7 @@ const DEFAULTS: Required<Omit<LineChartConfig,
 
   // Interactivity
   tooltip: true,
+  tooltipFormat: undefined,
   showPoints: true,
   pointRadius: 3,
   hoverColor: '#1d4ed8',
@@ -185,7 +187,7 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
     tooltipEl.style.padding = '6px 8px';
     tooltipEl.style.borderRadius = '6px';
     tooltipEl.style.fontSize = '12px';
-    tooltipEl.style.transform = 'translate(-50%, -120%)';
+    tooltipEl.style.transform = 'translate(12px, -28px)';
     tooltipEl.style.opacity = '0';
     tooltipEl.style.transition = 'opacity 120ms ease';
     (rootEl.parentElement || rootEl).appendChild(tooltipEl);
@@ -423,10 +425,12 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
           : currentXType === 'linear' ? (xScale as d3.ScaleLinear<number, number>)(+xv!)
           : (xScale as d3.ScalePoint<string>)(String(xv)) as number;
         const cy = (yScale as d3.ScaleLinear<number, number>)(+nearest[cfg.yKey]);
-
-        tooltipEl.style.left = `${margins.left + cx}px`;
-        tooltipEl.style.top = `${margins.top + cy}px`;
-        tooltipEl.innerHTML = `<div><strong>${formatX(cfg.xType === 'time' ? (nearest.__xDate as Date) : xv)}</strong></div><div>${formatY(+nearest[cfg.yKey])}</div>`;
+        // Place tooltip near cursor for better readability
+        tooltipEl.style.left = `${margins.left + mx}px`;
+        tooltipEl.style.top = `${margins.top + my}px`;
+        const xLabel = cfg.xType === 'time' ? (nearest.__xDate as Date) : xv;
+        const fallback = `<div><strong>${formatX(xLabel)}</strong></div><div>${formatY(+nearest[cfg.yKey])}</div>`;
+        tooltipEl.innerHTML = cfg.tooltipFormat ? cfg.tooltipFormat(nearest) : fallback;
         tooltipEl.style.opacity = '1';
       })
       .on('mouseout', function () {

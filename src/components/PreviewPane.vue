@@ -17,6 +17,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "refresh"): void;
   (e: "update:fields", payload: string[]): void;
+  (e: "update:encoding", payload: { category: string; value: string; series?: string }): void;
 }>();
 
 const svgRef = ref<SVGSVGElement | null>(null);
@@ -29,6 +30,7 @@ let areaChart: AreaChartInstance | null = null;
 const rows = ref<Record<string, unknown>[]>([]);
 const selectedRow = ref<number | null>(null);
 const selectedColumn = ref<string | null>(null);
+const mapping = reactive<{ category?: string; value?: string; series?: string }>({});
 const editValue = ref<string>("");
 const newColumnName = ref<string>("");
 const renameFrom = ref<string>("");
@@ -39,10 +41,37 @@ const pageSizeOptions = [10, 25, 50, 100];
 // Excel-like value filters per column
 const valueFilterSelections = reactive({} as Record<string, Set<string> | null>);
 const openFilterCol = ref<string | null>(null);
+const filterPosition = ref<{ top: number; left: number }>({ top: 0, left: 0 });
 const valueFilterSearch = ref<string>("");
 const tempSelection = ref<Set<string>>(new Set());
 
 const columns = computed(() => rows.value.length ? Object.keys(rows.value[0]) : []);
+
+watch(
+  () => props.spec.encoding,
+  (enc) => {
+    mapping.category = enc.category?.field;
+    mapping.value = enc.value?.field;
+    mapping.series = enc.series?.field;
+  },
+  { deep: true, immediate: true }
+);
+
+watch(columns, (cols) => {
+  // prune any value filters for columns that no longer exist
+  Object.keys(valueFilterSelections).forEach(key => { if (!cols.includes(key)) delete valueFilterSelections[key]; });
+  // keep mapping valid
+  if (cols.length) {
+    if (!mapping.category || !cols.includes(mapping.category)) mapping.category = cols[0];
+    if (!mapping.value || !cols.includes(mapping.value)) mapping.value = cols[1] ?? cols[0];
+    if (mapping.series && !cols.includes(mapping.series)) mapping.series = undefined;
+  } else {
+    mapping.category = undefined;
+    mapping.value = undefined;
+    mapping.series = undefined;
+  }
+  page.value = 1;
+}, { immediate: true });
 
 watch(columns, (cols) => {
   // prune any value filters for columns that no longer exist
@@ -67,12 +96,17 @@ const visibleFilterValues = computed(() => {
   return term ? all.filter(v => v.toLowerCase().includes(term)) : all;
 });
 
-function openValueFilter(col: string) {
+function openValueFilter(col: string, event?: MouseEvent) {
   openFilterCol.value = openFilterCol.value === col ? null : col;
   valueFilterSearch.value = "";
   const current = valueFilterSelections[col];
   const all = uniqueValuesFor(col);
   tempSelection.value = new Set(current ? Array.from(current) : all);
+  if (event?.currentTarget instanceof HTMLElement) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    filterPosition.value = { top: rect.bottom, left: rect.left-120 };
+  }
+
 }
 
 function toggleTempAll(checked: boolean) {
@@ -125,6 +159,18 @@ const filteredRowsWithIndex = computed(() => {
   }, []);
 });
 
+const filteredRows = computed(() => filteredRowsWithIndex.value.map(r => r.row));
+
+watch(
+  () => ({ ...mapping }),
+  (next) => {
+    if (next.category && next.value) {
+      emit("update:encoding", { category: next.category, value: next.value, series: next.series });
+    }
+  },
+  { deep: true }
+);
+
 const totalFiltered = computed(() => filteredRowsWithIndex.value.length);
 const totalPages = computed(() => {
   const total = Math.ceil(totalFiltered.value / pageSize.value) || 1;
@@ -169,7 +215,7 @@ async function loadAndRender() {
       svg.style.display = "block";
       // Apply year filter if present and series field exists
       const seriesField = props.spec.encoding.series?.field;
-      let renderRows = rows.value;
+      let renderRows = filteredRows.value;
       if (seriesField && props.selectedYears && props.selectedYears.length) {
         renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
       }
@@ -207,6 +253,12 @@ async function loadAndRender() {
         yTickFormat: props.lineConfig?.yTickFormat,
         showGrid: props.lineConfig?.showGrid ?? true,
         tooltip: props.lineConfig?.tooltip ?? true,
+        tooltipFormat: props.lineConfig?.tooltipFormat ?? ((d: any) => {
+          const val = d[yKey];
+          const series = seriesField ? d[seriesField] : undefined;
+          const parts = [series !== undefined ? `<div><strong>${String(series)}</strong></div>` : '', `<div>Value: ${val}</div>`];
+          return parts.join('');
+        }),
         showPoints: props.lineConfig?.showPoints ?? true,
         pointRadius: props.lineConfig?.pointRadius ?? 3,
         hoverColor: props.lineConfig?.hoverColor ?? '#1d4ed8',
@@ -215,7 +267,8 @@ async function loadAndRender() {
         yDomain: props.lineConfig?.yDomain,
       };
 
-      lineChart = createLineChart(frameRef.value, rows.value, cfg);
+      const lineRows = filteredRows.value;
+      lineChart = createLineChart(frameRef.value, lineRows, cfg);
       status.value = "Rendered line chart";
     } else if (props.spec.type === "area") {
       // Hide the bar SVG and render area into the frame container
@@ -263,7 +316,12 @@ async function loadAndRender() {
         pointColor: props.areaConfig?.pointColor ?? '#1d4ed8',
         pointStroke: props.areaConfig?.pointStroke ?? '#ffffff',
         tooltip: props.areaConfig?.tooltip ?? true,
-        tooltipFormat: props.areaConfig?.tooltipFormat,
+        tooltipFormat: props.areaConfig?.tooltipFormat ?? ((d: any) => {
+          const val = d[yKey];
+          const series = seriesField ? d[seriesField] : undefined;
+          const parts = [series !== undefined ? `<div><strong>${String(series)}</strong></div>` : '', `<div>Value: ${val}</div>`];
+          return parts.join('');
+        }),
         hoverLine: props.areaConfig?.hoverLine ?? true,
         hoverColor: props.areaConfig?.hoverColor ?? '#94a3b8',
         focusCircle: props.areaConfig?.focusCircle ?? true,
@@ -273,7 +331,8 @@ async function loadAndRender() {
         sortData: props.areaConfig?.sortData ?? false,
       };
 
-      areaChart = drawAreaChart(frameRef.value, rows.value, cfg);
+      const areaRows = filteredRows.value;
+      areaChart = drawAreaChart(frameRef.value, areaRows, cfg);
       status.value = "Rendered area chart";
     } else {
       status.value = `Type ${props.spec.type} not yet wired`;
@@ -294,6 +353,15 @@ watch(
     loadAndRender();
   },
   { deep: true }
+);
+
+// When the layout preset changes (e.g., single → horizontal/vertical),
+// force a full redraw so axes/grid re-render appropriately.
+watch(
+  () => props.spec.layout?.preset,
+  () => {
+    loadAndRender();
+  }
 );
 
 watch(
@@ -389,7 +457,12 @@ function renameColumnAction() {
 function renderWithCurrentRows() {
   if (!svgRef.value) return;
   if (props.spec.type === "bar") {
-    renderBarChart(svgRef.value, props.spec, rows.value, props.barConfig);
+    const seriesField = props.spec.encoding.series?.field;
+    let renderRows = filteredRows.value;
+    if (seriesField && props.selectedYears && props.selectedYears.length) {
+      renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
+    }
+    renderBarChart(svgRef.value, props.spec, renderRows, props.barConfig);
   } else if (props.spec.type === "line" && frameRef.value) {
     if (lineChart) { lineChart.destroy(); lineChart = null; }
     const xKey = props.spec.encoding.category.field;
@@ -421,7 +494,8 @@ function renderWithCurrentRows() {
       duration: props.lineConfig?.duration ?? 800,
       yDomain: props.lineConfig?.yDomain,
     };
-    lineChart = createLineChart(frameRef.value, rows.value, cfg);
+    const lineRows = filteredRows.value;
+    lineChart = createLineChart(frameRef.value, lineRows, cfg);
   } else if (props.spec.type === "area" && frameRef.value) {
     if (areaChart) { areaChart.destroy(); areaChart = null; }
     const xKey = props.spec.encoding.category.field;
@@ -470,7 +544,8 @@ function renderWithCurrentRows() {
       easing: undefined,
       sortData: props.areaConfig?.sortData ?? false,
     };
-    areaChart = drawAreaChart(frameRef.value, rows.value, cfg);
+    const areaRows = filteredRows.value;
+    areaChart = drawAreaChart(frameRef.value, areaRows, cfg);
   }
 }
 
@@ -534,6 +609,31 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
+      <div
+        class="form-grid"
+        style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 8px; position: sticky; top: 0; z-index: 5; background: white; padding-top: 8px; padding-bottom: 8px;"
+      >
+        <label class="form-field">
+          <span>X axis (category)</span>
+          <select v-model="mapping.category">
+            <option v-for="col in columns" :key="col" :value="col">{{ col }}</option>
+          </select>
+        </label>
+        <label class="form-field">
+          <span>Y axis (value)</span>
+          <select v-model="mapping.value">
+            <option v-for="col in columns" :key="col" :value="col">{{ col }}</option>
+          </select>
+        </label>
+        <label class="form-field">
+          <span>Series (optional)</span>
+          <select v-model="mapping.series">
+            <option :value="undefined">None</option>
+            <option v-for="col in columns" :key="col" :value="col">{{ col }}</option>
+          </select>
+        </label>
+      </div>
+
       <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
         <div class="form-field">
           <span>Selected cell</span>
@@ -570,44 +670,60 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="data-table" v-if="columns.length" style="margin-top: 12px; overflow:auto; max-height: 360px; border: 1px solid #e2e8f0; border-radius: 8px;">
+      <div class="data-table" v-if="columns.length" style="margin-top: 12px; overflow:auto; max-height: 700px; border: 1px solid #e2e8f0; border-radius: 8px; position: relative;">
         <table style="width: 100%; border-collapse: collapse;">
           <thead>
             <tr>
-              <th style="position: sticky; top: 0; background: #f8fafc; text-align: left; padding: 8px; border-bottom: 1px solid #e2e8f0;">#</th>
-              <th v-for="col in columns" :key="col" style="position: sticky; top: 0; background: #f8fafc; text-align: left; padding: 8px; border-bottom: 1px solid #e2e8f0; position: relative;">
+              <th style="position: sticky; top: 0; z-index: 6; background: #f8fafc; text-align: left; padding: 8px; border-bottom: 1px solid #e2e8f0;">#</th>
+              <th v-for="col in columns" :key="col" style="position: sticky; top: 0; z-index: 6; background: #f8fafc; text-align: left; padding: 8px; border-bottom: 1px solid #e2e8f0;">
                 <span>{{ col }}</span>
                 <button
                   class="pill"
                   type="button"
                   style="margin-left: 6px; padding: 2px 6px; font-size: 12px;"
                   :class="{ 'pill--active': isColFiltered(col) }"
-                  @click.stop="openValueFilter(col)"
+                  @click.stop="openValueFilter(col, $event)"
                   title="Filter column"
                 >
                   {{ isColFiltered(col) ? 'Filter*' : 'Filter' }}
                 </button>
-                <div v-if="openFilterCol === col" style="position: absolute; z-index: 20; top: 100%; left: 0; background: white; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.08); width: 280px; padding: 8px;">
-                  <div class="form-field">
-                    <span style="font-size:12px; color:#64748b">Search</span>
-                    <input type="text" v-model="valueFilterSearch" placeholder="Search values" />
+                <Teleport to="body">
+                  <div
+                    v-if="openFilterCol === col"
+                    :style="{
+                      position: 'fixed',
+                      zIndex: 60,
+                      top: filterPosition.top + 'px',
+                      left: filterPosition.left + 'px',
+                      background: 'white',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      boxShadow: '0 10px 30px rgba(0,0,0,0.12)',
+                      width: '280px',
+                      padding: '8px'
+                    }"
+                  >
+                    <div class="form-field">
+                      <span style="font-size:12px; color:#64748b">Search</span>
+                      <input type="text" v-model="valueFilterSearch" placeholder="Search values" />
+                    </div>
+                    <div style="max-height: 220px; overflow:auto; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px; margin-top: 6px;">
+                      <label style="display:flex; align-items:center; gap:8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
+                        <input type="checkbox" :checked="tempSelection.size === uniqueValuesFor(col).length" @change="toggleTempAll(($event.target as HTMLInputElement).checked)" />
+                        <span>(Select All)</span>
+                      </label>
+                      <label v-for="val in visibleFilterValues" :key="val" style="display:flex; align-items:center; gap:8px; padding: 4px 0;">
+                        <input type="checkbox" :checked="tempSelection.has(val)" @change="toggleTempValue(val, ($event.target as HTMLInputElement).checked)" />
+                        <span>{{ val }}</span>
+                      </label>
+                    </div>
+                    <div class="pill-group" style="margin-top: 8px; display:flex; justify-content: flex-end; gap: 8px;">
+                      <button class="pill" type="button" @click.stop="clearValueFilter(col)">Clear</button>
+                      <button class="pill" type="button" @click.stop="openFilterCol = null">Cancel</button>
+                      <button class="pill" type="button" @click.stop="applyValueFilter">OK</button>
+                    </div>
                   </div>
-                  <div style="max-height: 220px; overflow:auto; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px; margin-top: 6px;">
-                    <label style="display:flex; align-items:center; gap:8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
-                      <input type="checkbox" :checked="tempSelection.size === uniqueValuesFor(col).length" @change="toggleTempAll(($event.target as HTMLInputElement).checked)" />
-                      <span>(Select All)</span>
-                    </label>
-                    <label v-for="val in visibleFilterValues" :key="val" style="display:flex; align-items:center; gap:8px; padding: 4px 0;">
-                      <input type="checkbox" :checked="tempSelection.has(val)" @change="toggleTempValue(val, ($event.target as HTMLInputElement).checked)" />
-                      <span>{{ val }}</span>
-                    </label>
-                  </div>
-                  <div class="pill-group" style="margin-top: 8px; display:flex; justify-content: flex-end; gap: 8px;">
-                    <button class="pill" type="button" @click.stop="clearValueFilter(col)">Clear</button>
-                    <button class="pill" type="button" @click.stop="openFilterCol = null">Cancel</button>
-                    <button class="pill" type="button" @click.stop="applyValueFilter">OK</button>
-                  </div>
-                </div>
+                </Teleport>
               </th>
             </tr>
             

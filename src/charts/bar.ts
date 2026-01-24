@@ -166,6 +166,21 @@ export function renderBarChart(
     .join('g')
     .attr('class', 'overlays');
 
+  // Tooltip element for hover
+  let tooltipEl: HTMLDivElement | null = null;
+  tooltipEl = document.createElement('div');
+  tooltipEl.style.position = 'absolute';
+  tooltipEl.style.pointerEvents = 'none';
+  tooltipEl.style.background = 'rgba(17,24,39,0.9)';
+  tooltipEl.style.color = '#fff';
+  tooltipEl.style.padding = '6px 8px';
+  tooltipEl.style.borderRadius = '6px';
+  tooltipEl.style.fontSize = '12px';
+  tooltipEl.style.transform = 'translate(-50%, -120%)';
+  tooltipEl.style.opacity = '0';
+  tooltipEl.style.transition = 'opacity 120ms ease';
+  (svgEl.parentElement || svgEl).appendChild(tooltipEl);
+
   /* ============================
      2. CONFIG EXTRACTION
      ============================ */
@@ -459,18 +474,35 @@ export function renderBarChart(
     .on('click', function (event, d) {
       if (onSelect) onSelect(barId(d));
     })
-    .on('mouseover', function (_, d) {
+    .on('mouseover', function (event, d) {
       const base = resolveColor(d);
       d3.select(this)
         .transition()
         .duration(cfg.animationDuration / 2)
         .attr('fill', colorDarken(base));
+      if (tooltipEl) {
+        const val = Number(d[valueKey]);
+        const seriesVal = seriesKey ? d[seriesKey] : undefined;
+        const content = `${seriesVal !== undefined ? `<div><strong>${String(seriesVal)}</strong></div>` : ''}<div>Value: ${d3.format(cfg.numberFormat)(val)}</div>`;
+        const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
+        tooltipEl.style.left = `${event.clientX - rect.left}px`;
+        tooltipEl.style.top = `${event.clientY - rect.top}px`;
+        tooltipEl.innerHTML = content;
+        tooltipEl.style.opacity = '1';
+      }
+    })
+    .on('mousemove', function (event, d) {
+      if (!tooltipEl) return;
+      const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
+      tooltipEl.style.left = `${event.clientX - rect.left}px`;
+      tooltipEl.style.top = `${event.clientY - rect.top}px`;
     })
     .on('mouseout', function (_, d) {
       d3.select(this)
         .transition()
         .duration(cfg.animationDuration / 2)
         .attr('fill', resolveColor(d));
+      if (tooltipEl) tooltipEl.style.opacity = '0';
     });
 
   // Labels per bar with override text priority.

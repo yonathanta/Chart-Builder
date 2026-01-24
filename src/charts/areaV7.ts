@@ -203,7 +203,7 @@ export function drawAreaChart(container: string | HTMLElement, data: any[], conf
     tooltipEl.style.padding = '6px 8px';
     tooltipEl.style.borderRadius = '6px';
     tooltipEl.style.fontSize = '12px';
-    tooltipEl.style.transform = 'translate(-50%, -120%)';
+    tooltipEl.style.transform = 'translate(12px, -28px)';
     tooltipEl.style.opacity = '0';
     tooltipEl.style.transition = 'opacity 120ms ease';
     (rootEl.parentElement || rootEl).appendChild(tooltipEl);
@@ -514,8 +514,9 @@ export function drawAreaChart(container: string | HTMLElement, data: any[], conf
           const content = cfg.tooltipFormat
             ? cfg.tooltipFormat(nearest)
             : `<div><strong>${formatX(xLabel)}</strong></div><div>${formatY(+nearest[cfg.yKey])}</div>`;
-          tooltipEl.style.left = `${margin.left + px}px`;
-          tooltipEl.style.top = `${margin.top + py}px`;
+          // Position tooltip near the cursor instead of the data point
+          tooltipEl.style.left = `${margin.left + mx}px`;
+          tooltipEl.style.top = `${margin.top + my}px`;
           tooltipEl.innerHTML = content;
           tooltipEl.style.opacity = '1';
         }

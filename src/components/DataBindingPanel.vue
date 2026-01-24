@@ -201,42 +201,14 @@ onBeforeUnmount(() => {
       <button class="pill" type="button" @click="downloadExcelTemplate">Download Excel/CSV template</button>
     </div>
 
-    <div v-if="schemaFields.keys.length" class="panel" style="margin-top: 16px;">
+    <!-- Map fields UI disabled per request -->
+    <!-- <div v-if="schemaFields.keys.length" class="panel" style="margin-top: 16px;">
       <header class="panel__header">
         <h3 class="panel__title">Map fields</h3>
       </header>
       <div class="form-grid">
-        <label class="form-field">
-          <span>X (category)</span>
-          <select v-model="mapping.category" @change="() => emit('update:encoding', { category: mapping.category!, value: mapping.value!, series: mapping.series })">
-            <option v-for="k in schemaFields.keys" :key="k" :value="k">{{ k }}</option>
-          </select>
-        </label>
-        <label class="form-field">
-          <span>Y (value)</span>
-          <select v-model="mapping.value" @change="() => emit('update:encoding', { category: mapping.category!, value: mapping.value!, series: mapping.series })">
-            <option v-for="k in schemaFields.keys" :key="k" :value="k">{{ k }}</option>
-          </select>
-        </label>
-        <label class="form-field">
-          <span>Series / Year (optional)</span>
-          <select v-model="mapping.series" @change="() => {
-            const years = mapping.series ? Array.from(new Set(uploadedRows.map(r => String(r[mapping.series!]))).values()) : [];
-            mapping.years = years;
-            emit('update:years', mapping.years);
-            emit('update:encoding', { category: mapping.category!, value: mapping.value!, series: mapping.series });
-          }">
-            <option :value="undefined">None</option>
-            <option v-for="k in schemaFields.keys" :key="k" :value="k">{{ k }}</option>
-          </select>
-        </label>
-        <label class="form-field form-field--wide" v-if="mapping.series">
-          <span>Filter years</span>
-          <select multiple v-model="mapping.years" @change="() => emit('update:years', mapping.years)">
-            <option v-for="y in Array.from(new Set(uploadedRows.map(r => String(r[mapping.series!]))).values())" :key="y" :value="y">{{ y }}</option>
-          </select>
-        </label>
+        ...
       </div>
-    </div>
+    </div> -->
   </section>
 </template>
