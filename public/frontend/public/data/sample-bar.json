@@ -1,0 +1,12 @@
+[
+  { "category": "Kenya", "value": 48.0, "series": "2023" },
+  { "category": "Nigeria", "value": 92.0, "series": "2023" },
+  { "category": "South Africa", "value": 65.0, "series": "2023" },
+  { "category": "Ghana", "value": 31.0, "series": "2023" },
+  { "category": "Ethiopia", "value": 78.0, "series": "2023" },
+  { "category": "Kenya", "value": 52.0, "series": "2024" },
+  { "category": "Nigeria", "value": 96.0, "series": "2024" },
+  { "category": "South Africa", "value": 68.0, "series": "2024" },
+  { "category": "Ghana", "value": 34.0, "series": "2024" },
+  { "category": "Ethiopia", "value": 81.0, "series": "2024" }
+]

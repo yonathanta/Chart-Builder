@@ -1,0 +1,32 @@
+[
+  {
+    "time": "2020",
+    "data": [
+      { "category": "Kenya", "value": 40 },
+      { "category": "Nigeria", "value": 80 },
+      { "category": "South Africa", "value": 60 },
+      { "category": "Ghana", "value": 28 },
+      { "category": "Ethiopia", "value": 70 }
+    ]
+  },
+  {
+    "time": "2021",
+    "data": [
+      { "category": "Kenya", "value": 46 },
+      { "category": "Nigeria", "value": 85 },
+      { "category": "South Africa", "value": 63 },
+      { "category": "Ghana", "value": 30 },
+      { "category": "Ethiopia", "value": 74 }
+    ]
+  },
+  {
+    "time": "2022",
+    "data": [
+      { "category": "Kenya", "value": 50 },
+      { "category": "Nigeria", "value": 90 },
+      { "category": "South Africa", "value": 66 },
+      { "category": "Ghana", "value": 32 },
+      { "category": "Ethiopia", "value": 78 }
+    ]
+  }
+]
