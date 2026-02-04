@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch, nextTick, onBeforeUnmount, computed, reactive } from "vue";
+import * as XLSX from 'xlsx';
 import type { ChartSpec } from "../specs/chartSpec";
 import { renderBarChart, type BuilderBarConfig } from "../charts/bar";
 import { createLineChart, type LineChartConfig, type LineChartInstance } from "../charts/line";
@@ -464,6 +465,50 @@ function addColumn() {
   renderWithCurrentRows();
 }
 
+async function handleFileInput(evt: Event) {
+  const input = evt.target as HTMLInputElement;
+  const file = input?.files?.[0];
+  if (!file) return;
+  try {
+    status.value = `Importing ${file.name}…`;
+    const arrayBuffer = await file.arrayBuffer();
+    const wb = XLSX.read(arrayBuffer, { type: 'array' });
+    const first = wb.SheetNames[0];
+    const sheet = wb.Sheets[first];
+    const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    // Ensure consistent object rows
+    rows.value = (json as any[]).map(r => ({ ...r }));
+    // notify parent of field/columns change
+    emit('update:fields', columns.value);
+    // re-render chart with imported rows
+    await nextTick();
+    renderWithCurrentRows();
+    status.value = `Loaded ${rows.value.length} rows from ${file.name}`;
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+    status.value = '';
+  } finally {
+    // reset the input so same file can be selected again
+    if (evt.target && (evt.target as HTMLInputElement).value) (evt.target as HTMLInputElement).value = '';
+  }
+}
+
+function downloadJson() {
+  try {
+    const blob = new Blob([JSON.stringify(rows.value, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'data.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  }
+}
+
 function renameColumnAction() {
   const from = renameFrom.value.trim();
   const to = renameTo.value.trim();
@@ -619,6 +664,13 @@ onBeforeUnmount(() => {
         <div>
           <p class="label">Data</p>
           <p class="value">{{ spec.data.provider }} · {{ spec.data.query.source }}</p>
+          <div style="margin-top:8px;">
+            <label class="pill" style="display:inline-flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer;">
+              <span>Bind file</span>
+              <input type="file" accept=".csv,.tsv,.xls,.xlsx" style="display:none" @change="handleFileInput" />
+            </label>
+            <button class="pill" type="button" style="margin-left:8px;" @click="downloadJson" :disabled="!rows.length">Download JSON</button>
+          </div>
         </div>
       </div>
       <div class="preview__frame" ref="frameRef">

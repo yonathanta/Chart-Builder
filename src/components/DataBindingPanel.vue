@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { reactive, watch, onBeforeUnmount } from "vue";
+import * as XLSX from 'xlsx';
 import type { DataBinding } from "../specs/chartSpec";
 
 const props = defineProps<{
@@ -53,40 +54,50 @@ const providerOptions: Array<{ label: string; value: DataBinding["provider"]; ki
     { label: "Database", value: "db", kind: "db" },
   ];
 
-function handleFileUpload(event: Event) {
+async function handleFileUpload(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
 
-  const reader = new FileReader();
-  reader.onload = () => {
-    const text = String(reader.result ?? "");
-    try {
+  try {
+    let parsedRows: any[] = [];
+
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.json') || file.type === 'application/json') {
+      const text = await file.text();
       const parsed = JSON.parse(text);
-      uploadedRows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.data) ? parsed.data : []);
-      const first = uploadedRows[0] || {};
-      const keys = Object.keys(first);
-      schemaFields.keys = keys;
-      // naive defaults
-      mapping.category = keys.find(k => /cat|name|label/i.test(k)) || keys[0];
-      mapping.value = keys.find(k => /val|count|total|pop|population|amount|metric/i.test(k)) || keys[1];
-      mapping.series = keys.find(k => /year|date|month|time|series/i.test(k));
-      // derive years
-      if (mapping.series) {
-        const uniq = Array.from(new Set(uploadedRows.map(r => String(r[mapping.series!]))).values());
-        mapping.years = uniq.slice(0, Math.min(uniq.length, 5));
-        emit("update:years", mapping.years);
-      } else {
-        mapping.years = [];
-        emit("update:years", []);
-      }
-    } catch (_err) {
-      alert("Invalid JSON file. Please upload a valid JSON array or object.");
-      return;
+      parsedRows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.data) ? parsed.data : []);
+    } else {
+      // use xlsx to read CSV/Excel/TSV
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab, { type: 'array' });
+      const first = wb.SheetNames[0];
+      const sheet = wb.Sheets[first];
+      parsedRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as any[];
     }
 
+    uploadedRows = parsedRows;
+    const first = uploadedRows[0] || {};
+    const keys = Object.keys(first);
+    schemaFields.keys = keys;
+    // naive defaults
+    mapping.category = keys.find(k => /cat|name|label/i.test(k)) || keys[0];
+    mapping.value = keys.find(k => /val|count|total|pop|population|amount|metric/i.test(k)) || keys[1];
+    mapping.series = keys.find(k => /year|date|month|time|series/i.test(k));
+    // derive years
+    if (mapping.series) {
+      const uniq = Array.from(new Set(uploadedRows.map(r => String(r[mapping.series!]))).values());
+      mapping.years = uniq.slice(0, Math.min(uniq.length, 5));
+      emit("update:years", mapping.years);
+    } else {
+      mapping.years = [];
+      emit("update:years", []);
+    }
+
+    // create a JSON blob URL for the preview to consume
+    const textJson = JSON.stringify(uploadedRows);
     if (fileObjectUrl) URL.revokeObjectURL(fileObjectUrl);
-    fileObjectUrl = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    fileObjectUrl = URL.createObjectURL(new Blob([textJson], { type: "application/json" }));
 
     local.provider = "json";
     local.kind = "json";
@@ -100,8 +111,13 @@ function handleFileUpload(event: Event) {
     emit("navigate:config");
     // Ask the preview to reload immediately after upload so users see the data
     emit("preview-refresh");
-  };
-  reader.readAsText(file);
+  } catch (err) {
+    alert("Failed to parse file. Please upload a valid JSON, CSV, or Excel file.");
+    console.error(err);
+  } finally {
+    // clear input so the same file can be re-uploaded if needed
+    if (input) input.value = '';
+  }
 }
 
 function triggerDownload(content: BlobPart, filename: string, type: string) {
@@ -174,8 +190,8 @@ onBeforeUnmount(() => {
       </label>
 
       <label class="form-field">
-        <span>Upload JSON</span>
-        <input type="file" accept="application/json" @change="handleFileUpload" />
+        <span>Upload JSON / CSV / Excel</span>
+        <input type="file" accept="application/json,.csv,.tsv,.xls,.xlsx" @change="handleFileUpload" />
       </label>
 
       <label class="form-field form-field--wide">

@@ -148,6 +148,7 @@ watch(
 
 function updateType(type: ChartSpec["type"]) {
   spec.value = { ...spec.value, type };
+  refreshPreview();
 }
 
 function applyPreset(payload: { type: ChartSpec["type"]; layoutPreset?: "single" | "horizontal" | "vertical" | "grid" | "smallMultiples"; mode?: "grouped" | "stacked" | "percent" | "simple" }) {
@@ -155,6 +156,7 @@ function applyPreset(payload: { type: ChartSpec["type"]; layoutPreset?: "single"
   if (payload.mode) nextStyle.mode = payload.mode;
   const nextLayout = { ...spec.value.layout, preset: payload.layoutPreset ?? spec.value.layout.preset };
   spec.value = { ...spec.value, type: payload.type, style: nextStyle, layout: nextLayout } as ChartSpec;
+  refreshPreview();
 }
 
 function updateLayout(payload: Partial<ChartSpec["layout"]>) {
@@ -200,6 +202,9 @@ function updateAreaConfig(next: Record<string, any>) {
 }
 
 function refreshPreview() {
+  nextTick(() => {
+    previewRef.value?.reload?.();
+  });
 }
 
 function onPreviewRefresh() {

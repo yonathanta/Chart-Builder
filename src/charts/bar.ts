@@ -476,17 +476,26 @@ export function renderBarChart(
 
   const barY = (d: any) =>
     orientation === 'vertical'
-      ? valueLinear(d[valueKey])
+      ? ((): number => {
+          const v = Number(d[valueKey]);
+          return Number.isFinite(v) ? valueLinear(v) : valueLinear(0);
+        })()
       : (categoryBand(d[categoryKey]) ?? 0) + (mode === 'grouped' && seriesKey ? seriesBand(d[seriesKey]) ?? 0 : 0);
 
   const barWidth = (d: any) =>
     orientation === 'vertical'
       ? mode === 'grouped' && seriesKey ? seriesBand.bandwidth() : categoryBand.bandwidth()
-      : valueLinear(d[valueKey]);
+      : ((): number => {
+          const v = Number(d[valueKey]);
+          return Number.isFinite(v) ? Math.max(0, valueLinear(v)) : 0;
+        })();
 
   const barHeight = (d: any) =>
     orientation === 'vertical'
-      ? innerHeight - valueLinear(d[valueKey])
+      ? ((): number => {
+          const v = Number(d[valueKey]);
+          return Number.isFinite(v) ? Math.max(0, innerHeight - valueLinear(v)) : 0;
+        })()
       : mode === 'grouped' && seriesKey ? seriesBand.bandwidth() : categoryBand.bandwidth();
 
   const bars = barsLayer
