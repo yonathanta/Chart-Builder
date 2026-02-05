@@ -269,8 +269,8 @@ function deleteOverlay(id: string) {
   <section class="panel">
     <header class="panel__header">
       <div>
-        <p class="eyebrow">Bar styling</p>
-        <h3 class="panel__title">Builder controls</h3>
+        
+        <h3 class="panel__title">STYLING</h3>
         <p class="muted">Rounded corners, spacing, color, animation, labels.</p>
       </div>
     </header>

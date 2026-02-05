@@ -350,7 +350,7 @@ async function handleExport(format: ExportFormat) {
 
         <section v-if="spec.type === 'line'" class="panel panel--foldable">
           <button class="panel__toggle" type="button" @click="togglePanel('builder')">
-            <span>Builder controls</span>
+            <span></span>
             <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
           </button>
           <div v-if="panelOpen.builder" class="panel__body">

@@ -652,7 +652,7 @@ onBeforeUnmount(() => {
       <div>
         <p class="eyebrow">Step 3</p>
         <h2 class="panel__title">Live preview</h2>
-        <p class="muted">Rendering powered by D3; UI stays framework-only.</p>
+        <p class="muted">Rendering powered by D3.</p>
       </div>
       <button type="button" class="btn" @click="handleRefresh">Refresh preview</button>
     </header>
@@ -685,7 +685,7 @@ onBeforeUnmount(() => {
         <div>
           <p class="eyebrow">Data</p>
           <h3 class="panel__title">Preview & edit</h3>
-          <p class="muted">Click a cell to edit; changes immediately re-render the chart.</p>
+          <p class="muted">Filter and changes immediately re-render the chart.</p>
         </div>
       </header>
 
