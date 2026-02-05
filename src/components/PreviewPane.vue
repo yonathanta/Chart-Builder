@@ -5,6 +5,9 @@ import type { ChartSpec } from "../specs/chartSpec";
 import { renderBarChart, type BuilderBarConfig } from "../charts/bar";
 import { createLineChart, type LineChartConfig, type LineChartInstance } from "../charts/line";
 import { drawAreaChart, type AreaChartConfig, type AreaChartInstance } from "../charts/areaV7";
+import { renderBubbleChart } from "../charts/bubble";
+import { renderDotDonutChart } from "../charts/dotDonut";
+import { renderOrbitDonutChart } from "../charts/orbitDonut";
 
 const props = defineProps<{
   spec: ChartSpec;
@@ -211,10 +214,20 @@ async function loadAndRender() {
     const width = props.spec.layout?.width ?? 720;
     const height = props.spec.layout?.height ?? 420;
 
+    // Enforce a consistent preview frame size for all chart types
+    if (frameRef.value) {
+      frameRef.value.style.width = `${width}px`;
+      frameRef.value.style.height = `${height}px`;
+    }
+
     // Always size the built-in SVG; hidden for non-bar types
     const svg = svgRef.value;
-    svg.setAttribute("width", String(width));
-    svg.setAttribute("height", String(height));
+    if (svg) {
+      svg.setAttribute("width", String(width));
+      svg.setAttribute("height", String(height));
+      svg.style.width = '100%';
+      svg.style.height = '100%';
+    }
 
     await nextTick();
 
@@ -233,6 +246,18 @@ async function loadAndRender() {
       }
       renderBarChart(svg, props.spec, renderRows, { ...props.barConfig, numberFormat: props.barConfig?.numberFormat ?? '~s' });
       status.value = "Rendered bar chart";
+    } else if (props.spec.type === 'bubble') {
+      svg.style.display = 'block';
+      renderBubbleChart(svg, props.spec, filteredRows.value || []);
+      status.value = 'Rendered bubble chart';
+    } else if (props.spec.type === 'dotDonut') {
+      svg.style.display = 'block';
+      renderDotDonutChart(svg, props.spec, filteredRows.value || []);
+      status.value = 'Rendered dot donut chart';
+    } else if (props.spec.type === 'orbitDonut') {
+      svg.style.display = 'block';
+      renderOrbitDonutChart(svg, props.spec, filteredRows.value || []);
+      status.value = 'Rendered orbit donut chart';
     } else if (props.spec.type === "line") {
       // Hide the bar SVG and render line into the frame container
       svg.style.display = "none";
@@ -525,6 +550,19 @@ function renameColumnAction() {
 
 function renderWithCurrentRows() {
   if (!svgRef.value) return;
+  // ensure preview frame size remains consistent when re-rendering
+  const enforcedWidth = props.spec.layout?.width ?? 720;
+  const enforcedHeight = props.spec.layout?.height ?? 420;
+  if (frameRef.value) {
+    frameRef.value.style.width = `${enforcedWidth}px`;
+    frameRef.value.style.height = `${enforcedHeight}px`;
+  }
+  if (svgRef.value) {
+    svgRef.value.setAttribute('width', String(enforcedWidth));
+    svgRef.value.setAttribute('height', String(enforcedHeight));
+    svgRef.value.style.width = '100%';
+    svgRef.value.style.height = '100%';
+  }
   if (props.spec.type === "bar") {
     const seriesField = props.spec.encoding.series?.field;
     let renderRows = filteredRows.value;
@@ -623,12 +661,21 @@ function renderWithCurrentRows() {
       areaRows = areaRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
     }
     areaChart = drawAreaChart(frameRef.value, areaRows, cfg);
-  }
+    } else if (props.spec.type === 'bubble') {
+      svgRef.value!.style.display = 'block';
+      renderBubbleChart(svgRef.value!, props.spec, filteredRows.value || []);
+    } else if (props.spec.type === 'dotDonut') {
+      svgRef.value!.style.display = 'block';
+      renderDotDonutChart(svgRef.value!, props.spec, filteredRows.value || []);
+    } else if (props.spec.type === 'orbitDonut') {
+      svgRef.value!.style.display = 'block';
+      renderOrbitDonutChart(svgRef.value!, props.spec, filteredRows.value || []);
+    }
 }
 
 defineExpose({
   getSvgEl: () => {
-    if (props.spec.type === 'bar') return svgRef.value;
+    if (props.spec.type === 'bar' || props.spec.type === 'bubble' || props.spec.type === 'dotDonut' || props.spec.type === 'orbitDonut') return svgRef.value;
     return frameRef.value?.querySelector('svg') as SVGSVGElement | null;
   },
   reload: loadAndRender,
@@ -673,6 +720,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+      <!-- removed global overlay; filter card will be placed inside the data panel -->
       <div class="preview__frame" ref="frameRef">
         <svg ref="svgRef"></svg>
       </div>
@@ -684,7 +732,7 @@ onBeforeUnmount(() => {
       <p class="status">{{ lastValidated }}</p>
     </div>
 
-    <section class="panel" style="margin-top: 16px;">
+    <section class="panel w-full" style="margin-top: 16px; position: relative;">
       <header class="panel__header">
         <div>
           <p class="eyebrow">Data</p>
@@ -692,6 +740,43 @@ onBeforeUnmount(() => {
           <p class="muted">Click a cell to edit; changes immediately re-render the chart.</p>
         </div>
       </header>
+
+      <!-- Filter card anchored to the top-left of the data panel -->
+      <div v-if="openFilterCol" class="data-panel-filter">
+        <div class="data-filter-card">
+          <div style="display:flex; gap:12px; align-items:flex-start;">
+            <div style="min-width:180px;">
+              <label class="form-field">
+                <span>Column</span>
+                <select v-model="openFilterCol">
+                  <option v-for="col in columns" :key="col" :value="col">{{ col }}</option>
+                </select>
+              </label>
+            </div>
+            <div style="flex:1;">
+              <div class="form-field">
+                <span style="font-size:12px; color:#64748b">Search</span>
+                <input type="text" v-model="valueFilterSearch" placeholder="Search values" />
+              </div>
+              <div style="max-height: 220px; overflow:auto; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px; margin-top: 6px; background:white;">
+                <label style="display:flex; align-items:center; gap:8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
+                  <input type="checkbox" :checked="openFilterCol ? tempSelection.size === uniqueValuesFor(openFilterCol).length : false" @change="toggleTempAll(($event.target as HTMLInputElement).checked)" />
+                  <span>(Select All)</span>
+                </label>
+                <label v-for="val in visibleFilterValues" :key="val" style="display:flex; align-items:center; gap:8px; padding: 4px 0;">
+                  <input type="checkbox" :checked="tempSelection.has(val)" @change="toggleTempValue(val, ($event.target as HTMLInputElement).checked)" />
+                  <span>{{ val }}</span>
+                </label>
+              </div>
+              <div class="pill-group" style="margin-top: 8px; display:flex; justify-content: flex-end; gap: 8px;">
+                <button class="pill" type="button" @click="clearValueFilter(openFilterCol)">Clear</button>
+                <button class="pill" type="button" @click="openFilterCol = null">Cancel</button>
+                <button class="pill" type="button" @click="applyValueFilter">OK</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div
         class="form-grid"
@@ -718,7 +803,7 @@ onBeforeUnmount(() => {
         </label>
       </div>
       <div class="data-table" v-if="columns.length" style="margin-top: 12px; overflow:auto; max-height: 700px; border: 1px solid #e2e8f0; border-radius: 8px; position: relative;">
-        <table style="width: 100%; border-collapse: collapse;">
+        <table class="w-full border-collapse">
           <thead>
             <tr>
               <th style="position: sticky; top: 0; z-index: 6; background: #f8fafc; text-align: left; padding: 8px; border-bottom: 1px solid #e2e8f0;">#</th>
@@ -736,7 +821,7 @@ onBeforeUnmount(() => {
                     {{ isColFiltered(col) ? 'Filter*' : 'Filter' }}
                   </button>
                   <div
-                    v-if="openFilterCol === col"
+                    v-if="false"
                     :style="{
                       position: 'absolute',
                       zIndex: 60,
@@ -820,3 +905,68 @@ onBeforeUnmount(() => {
     </section>
   </section>
 </template>
+
+<style scoped>
+.preview__frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border-radius: 8px;
+  overflow: hidden;
+  /* allow max-width responsiveness but prefer enforced px size */
+  max-width: 100%;
+}
+.preview__frame svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+</style>
+
+<style scoped>
+.panel.preview { position: relative; }
+.global-filter-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 220;
+  pointer-events: none;
+}
+.global-filter-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.16);
+}
+.global-filter-card {
+  position: absolute;
+  top: 8px; /* align to parent view top */
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  width: min(900px, 96%);
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 12px;
+  box-shadow: 0 12px 32px rgba(2,6,23,0.12);
+}
+
+/* Filter card anchored to the top-left of the Preview & edit (data) panel */
+.data-panel-filter {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 160;
+  pointer-events: auto;
+  width: min(780px, 92%);
+}
+.data-filter-card {
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 12px;
+  box-shadow: 0 8px 24px rgba(2,6,23,0.10);
+}
+
+</style>

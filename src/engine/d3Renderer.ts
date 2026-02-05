@@ -190,22 +190,25 @@ export function renderBarChart(
       .append("rect")
       .attr("class", "bar")
       .attr("fill", (d) => color(d.series))
-      .attr("x", (d) => (orientation === "vertical" ? seriesGroupScale(d.series) ?? 0 : 0))
-      .attr("y", () => (orientation === "vertical" ? yLinear(0) : seriesGroupScale(d.series) ?? 0))
-      .attr("width", orientation === "vertical" ? seriesGroupScale.bandwidth() : 0)
-      .attr("height", orientation === "vertical" ? 0 : seriesGroupScale.bandwidth());
+      .attr("x", (d) => (orientation === "vertical" ? (seriesGroupScale(d.series) ?? 0) : 0))
+      .attr("y", () => (orientation === "vertical" ? yLinear(0) : (seriesGroupScale(d.series) ?? 0)))
+      .attr("width", orientation === "vertical" ? Math.max(0, Number(seriesGroupScale.bandwidth() ?? 0)) : 0)
+      .attr("height", orientation === "vertical" ? 0 : Math.max(0, Number(seriesGroupScale.bandwidth() ?? 0)));
 
     const barsMerged = barsEnter.merge(bars as any);
 
     const applyBarAttrs = (sel: d3.Selection<SVGRectElement, any, any, any>) =>
       sel
-        .attr("x", (d) => (orientation === "vertical" ? seriesGroupScale(d.series) ?? 0 : 0))
-        .attr("y", (d) => (orientation === "vertical" ? yLinear(d.value) : seriesGroupScale(d.series) ?? 0))
-        .attr("width", orientation === "vertical" ? seriesGroupScale.bandwidth() : yLinear(d.value))
+        .attr("x", (d) => (orientation === "vertical" ? (seriesGroupScale(d.series) ?? 0) : 0))
+        .attr("y", (d) => (orientation === "vertical" ? Number(yLinear(Number(d.value))) : (seriesGroupScale(d.series) ?? 0)))
+        .attr("width", (d) => {
+          if (orientation === "vertical") return Math.max(0, Number(seriesGroupScale.bandwidth() ?? 0));
+          return Math.max(0, Number(yLinear(Number(d.value))));
+        })
         .attr("height", (d) =>
           orientation === "vertical"
-            ? innerHeight - yLinear(d.value)
-            : seriesGroupScale.bandwidth()
+            ? Math.max(0, Number(innerHeight - yLinear(Number(d.value))))
+            : Math.max(0, Number(seriesGroupScale.bandwidth() ?? 0))
         );
 
     if (enableTransitions) {
@@ -243,10 +246,10 @@ export function renderBarChart(
     const rectsEnter = rects
       .enter()
       .append("rect")
-      .attr("x", () => (orientation === "vertical" ? xBand.bandwidth() / 2 : 0))
-      .attr("y", () => (orientation === "vertical" ? yLinear(0) : xBand.bandwidth() / 2))
-      .attr("width", () => (orientation === "vertical" ? xBand.bandwidth() : 0))
-      .attr("height", () => (orientation === "vertical" ? 0 : xBand.bandwidth()));
+      .attr("x", () => (orientation === "vertical" ? Math.max(0, Number(xBand.bandwidth() ?? 0) / 2) : 0))
+      .attr("y", () => (orientation === "vertical" ? yLinear(0) : Math.max(0, Number(xBand.bandwidth() ?? 0) / 2)))
+      .attr("width", () => (orientation === "vertical" ? Math.max(0, Number(xBand.bandwidth() ?? 0)) : 0))
+      .attr("height", () => (orientation === "vertical" ? 0 : Math.max(0, Number(xBand.bandwidth() ?? 0))));
 
     const rectsMerged = rectsEnter.merge(rects as any);
 
@@ -254,23 +257,23 @@ export function renderBarChart(
       sel
         .attr("x", (d) =>
           orientation === "vertical"
-            ? xBand(d.data.category) ?? 0
-            : yLinear(d[0])
+            ? (xBand(d.data.category) ?? 0)
+            : Number(yLinear(Number(d[0])))
         )
         .attr("y", (d) =>
           orientation === "vertical"
-            ? yLinear(d[1])
-            : xBand(d.data.category) ?? 0
+            ? Number(yLinear(Number(d[1])))
+            : (xBand(d.data.category) ?? 0)
         )
         .attr("width", (d) =>
           orientation === "vertical"
-            ? xBand.bandwidth()
-            : yLinear(d[1]) - yLinear(d[0])
+            ? Math.max(0, Number(xBand.bandwidth() ?? 0))
+            : Math.max(0, Number(yLinear(Number(d[1])) - yLinear(Number(d[0]))))
         )
         .attr("height", (d) =>
           orientation === "vertical"
-            ? yLinear(d[0]) - yLinear(d[1])
-            : xBand.bandwidth()
+            ? Math.max(0, Number(yLinear(Number(d[0])) - yLinear(Number(d[1]))))
+            : Math.max(0, Number(xBand.bandwidth() ?? 0))
         );
 
     if (enableTransitions) {

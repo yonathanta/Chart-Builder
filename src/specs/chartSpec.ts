@@ -4,7 +4,10 @@ import type { DataQuery } from "../data/providers/DataProvider";
 export const chartTypeValues = [
   "bar",
   "line",
+  "bubble",
   "area",
+  "dotDonut",
+  "orbitDonut",
   "scatter",
   "map",
 ] as const;
@@ -35,11 +38,15 @@ export type DataBinding = z.infer<typeof dataBindingSchema>;
 
 export const encodingSchema = z.object({
   category: fieldRefSchema,
-  value: fieldRefSchema,
+  // value encoding may include an aggregation directive
+  value: fieldRefSchema.extend({
+    aggregate: z
+      .enum(["none", "sum", "avg", "median", "count"])
+      .default("none"),
+  }),
   series: fieldRefSchema.optional(),
   color: fieldRefSchema.optional(),
   tooltipFields: z.array(fieldRefSchema).optional(),
-  aggregate: z.enum(["none", "sum", "avg", "median", "count"]).default("none"),
   sort: z
     .object({
       field: z.string(),
@@ -52,7 +59,7 @@ export type Encoding = z.infer<typeof encodingSchema>;
 
 export const layoutSchema = z.object({
   preset: z
-    .enum(["single", "horizontal", "vertical", "grid", "smallMultiples"])
+    .enum(["single", "horizontal", "vertical", "grid", "smallMultiples", "circular"])
     .default("single"),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),

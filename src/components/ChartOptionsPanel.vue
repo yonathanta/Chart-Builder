@@ -17,6 +17,7 @@ const layoutPresets: Layout["preset"][] = [
   "vertical",
   "grid",
   "smallMultiples",
+  "circular",
 ];
 
 function updateLayout(key: keyof Layout, value: unknown) {

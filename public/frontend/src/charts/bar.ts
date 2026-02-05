@@ -106,7 +106,10 @@ export function renderBarChart(
      1. BASIC SETUP (persistent layers)
      ============================ */
 
-  const svg = d3.select(svgEl);
+    // Clear any previous drawing in the preview so the selected chart renders alone
+    try { d3.select(svgEl).selectAll('*').remove(); } catch (e) { /* ignore */ }
+
+    const svg = d3.select(svgEl);
 
   const width = Number(svg.attr('width')) || 800;
   const height = Number(svg.attr('height')) || 450;
@@ -166,9 +169,28 @@ export function renderBarChart(
     .join('g')
     .attr('class', 'overlays');
 
-  /* ============================
-     2. CONFIG EXTRACTION
-     ============================ */
+    // Tooltip element for hover; remove any existing tooltip to avoid duplicates
+    const parentNode = (svgEl.parentElement || svgEl) as HTMLElement;
+    const existing = parentNode.querySelector('.chart-tooltip') as HTMLElement | null;
+    if (existing) existing.remove();
+    let tooltipEl: HTMLDivElement | null = null;
+    tooltipEl = document.createElement('div');
+    tooltipEl.className = 'chart-tooltip';
+    tooltipEl.style.position = 'absolute';
+    tooltipEl.style.pointerEvents = 'none';
+    tooltipEl.style.background = 'rgba(17,24,39,0.9)';
+    tooltipEl.style.color = '#fff';
+    tooltipEl.style.padding = '6px 8px';
+    tooltipEl.style.borderRadius = '6px';
+    tooltipEl.style.fontSize = '12px';
+    tooltipEl.style.transform = 'translate(-50%, -120%)';
+    tooltipEl.style.opacity = '0';
+    tooltipEl.style.transition = 'opacity 120ms ease';
+    parentNode.appendChild(tooltipEl);
+
+    /* ============================
+      2. CONFIG EXTRACTION
+      ============================ */
 
   const style = (spec as any).style || {};
   const layoutPreset = spec.layout?.preset;

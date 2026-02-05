@@ -31,7 +31,9 @@ const tiles: Tile[] = [
   { key: "lines", label: "Lines", type: "line", enabled: true, icon: "M4 16l4-4 4 3 4-6 2 2" },
   { key: "multi-lines", label: "Multiple Lines", type: "line", enabled: true, icon: "M4 16l3-3 3 2 3-5 3 3M4 12l3-2 3 1 3-3 3 2" },
   { key: "area", label: "Area Chart", type: "area", enabled: true, icon: "M4 16l4-4 3 1 5-6 4 5v4H4z" },
+  { key: "bubble", label: "Bubble Chart", type: "bubble", enabled: true, icon: "M12 4a8 8 0 100 16 8 8 0 000-16z" },
   { key: "scatter", label: "Scatter Plot", type: "scatter", enabled: true, icon: "M6 14h2v2H6v-2zm4-6h2v2h-2V8zm5 3h2v2h-2v-2zm-8-3h2v2H7V8z" },
+  { key: "dot-donut", label: "Dot Donut", type: "dotDonut", enabled: true, icon: "M12 4a8 8 0 100 16 8 8 0 000-16zm0 5a3 3 0 110 6 3 3 0 010-6z" },
   { key: "dot", label: "Dot Plot", type: "unsupported", enabled: false, icon: "M6 10h10v2H6v-2zm0 4h10v2H6v-2z" },
   { key: "range", label: "Range Plot", type: "unsupported", enabled: false, icon: "M6 9h10v2H6V9zm6 4h4v2h-4v-2z" },
   { key: "arrow", label: "Arrow Plot", type: "unsupported", enabled: false, icon: "M6 14l4-4-1-1 5-5v6h-6l1-1-4 4z" },
@@ -39,6 +41,7 @@ const tiles: Tile[] = [
   { key: "pie", label: "Pie Chart", type: "unsupported", enabled: false, icon: "M12 4v8h8A8 8 0 0012 4zM4 12a8 8 0 008 8v-8H4z" },
   { key: "multi-pies", label: "Multiple Pies", type: "unsupported", enabled: false, icon: "M7 7a4 4 0 100 8 4 4 0 000-8zm10-2a4 4 0 100 8 4 4 0 000-8z" },
   { key: "donut", label: "Donut Chart", type: "unsupported", enabled: false, icon: "M12 4a8 8 0 100 16 8 8 0 000-16zm0 5a3 3 0 110 6 3 3 0 010-6z" },
+  { key: "orbit-donut", label: "Orbit Donut", type: "orbitDonut", enabled: true, icon: "M12 4a8 8 0 100 16 8 8 0 000-16zm0 5a3 3 0 110 6 3 3 0 010-6z" },
 ];
 
 function onClick(tile: Tile) {
@@ -94,8 +97,11 @@ function onClick(tile: Tile) {
 <style scoped>
 .type-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  /* Force two columns and constrain overall width to fit them cleanly */
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
   gap: 12px;
+  max-width: 240px;
+  margin: 0 auto;
 }
 .type-tile {
   display: flex;
@@ -107,9 +113,21 @@ function onClick(tile: Tile) {
   padding: 12px 8px;
   background: #ffffff;
   color: #0f172a;
+  box-sizing: border-box;
+  width: 100%;
+  /* Keep tiles visually consistent when switching types */
+  min-height: 84px;
 }
 .type-tile:hover { box-shadow: 0 0 0 2px #0891b220; }
 .type-tile--active { box-shadow: 0 0 0 2px #0ea5b7; border-color: #0ea5b7; }
 .type-tile--disabled { opacity: 0.45; cursor: not-allowed; }
 .type-tile__label { margin-top: 6px; font-size: 13px; }
+
+/* Responsive: collapse to single column on narrow viewports */
+@media (max-width: 420px) {
+  .type-grid {
+    grid-template-columns: 1fr;
+    max-width: 320px;
+  }
+}
 </style>

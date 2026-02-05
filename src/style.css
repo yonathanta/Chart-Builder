@@ -243,3 +243,19 @@ h1 {
     top: auto;
   }
 }
+section {
+  max-width: 50vw;    /* 70% of the viewport width */
+  width: 100%;        /* Allows it to be smaller than 70vw on tiny screens */
+  margin-left: auto;  /* Centers the section */
+  margin-right: auto;
+}
+
+.data-table {
+  width: 100%;        /* Fills the 70vw section completely */
+  overflow-x: auto;   /* Scrollbar if table content exceeds 70vw */
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
