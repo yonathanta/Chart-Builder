@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { chartSpecSchema, type ChartSpec } from "./specs/chartSpec";
 import ChartTypeSelector from "./components/ChartTypeSelector.vue";
 import ChartOptionsPanel from "./components/ChartOptionsPanel.vue";
@@ -129,6 +129,52 @@ const panelOpen = ref({
 
 const exportFormats: ExportFormat[] = ["svg", "png", "pdf", "html", "spec-json"];
 
+const shareOpen = ref(false);
+const shareButtonRef = ref<HTMLElement | null>(null);
+const shareDropdownRef = ref<HTMLElement | null>(null);
+
+const downloadOpen = ref(false);
+const downloadButtonRef = ref<HTMLElement | null>(null);
+const downloadDropdownRef = ref<HTMLElement | null>(null);
+
+function toggleShare() {
+  shareOpen.value = !shareOpen.value;
+}
+
+function selectShare(format: ExportFormat) {
+  shareOpen.value = false;
+  handleExport(format);
+}
+
+function toggleDownload() {
+  downloadOpen.value = !downloadOpen.value;
+}
+
+function selectDownload(format: ExportFormat) {
+  downloadOpen.value = false;
+  handleExport(format);
+}
+
+function handleDocClick(e: MouseEvent) {
+  if (!shareOpen.value) return;
+  const path = (e.composedPath && e.composedPath()) || (e as any).path || [];
+  const sBtn = shareButtonRef.value;
+  const sDd = shareDropdownRef.value;
+  const dBtn = downloadButtonRef.value;
+  const dDd = downloadDropdownRef.value;
+  if (sBtn && sDd) {
+    if (path.includes(sBtn) || path.includes(sDd)) return;
+  }
+  if (dBtn && dDd) {
+    if (path.includes(dBtn) || path.includes(dDd)) return;
+  }
+  shareOpen.value = false;
+  downloadOpen.value = false;
+}
+
+onMounted(() => document.addEventListener('click', handleDocClick, true));
+onBeforeUnmount(() => document.removeEventListener('click', handleDocClick, true));
+
 const chevron = vueComputed(() => (open: boolean) => open ? "›" : "›");
 const selectedYears = ref<string[]>([]);
 const dataFields = ref<string[]>([]);
@@ -231,6 +277,26 @@ function togglePanel(key: 'type' | 'options' | 'builder' | 'data') {
 
 const previewRef = ref<InstanceType<typeof PreviewPane> | null>(null);
 
+const embedOpen = ref(false);
+const embedSnippet = ref<string | null>(null);
+
+function openEmbed() {
+  const id = spec.value.id ?? 'REPLACE_ID';
+  embedSnippet.value = `<iframe src="https://ecastats.uneca.org/data/headless/visualizations/${encodeURIComponent(id)}" width="100%" height="100%" frameborder="0"></iframe>`;
+  embedOpen.value = true;
+}
+
+async function copyEmbed() {
+  if (!embedSnippet.value) return;
+  try {
+    await navigator.clipboard.writeText(embedSnippet.value);
+    alert('Embed snippet copied to clipboard');
+  } catch (err) {
+    console.error('Copy failed', err);
+    alert('Copy failed — see console');
+  }
+}
+
 async function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -283,19 +349,58 @@ async function handleExport(format: ExportFormat) {
         <h1>ECAStats Chart Builder</h1>
         <p class="muted">Choose type of Graph, configure, preview and export.</p>
       </div>
-      <div class="page__actions">
-        <div class="pill-group">
-          <button
-            v-for="format in exportFormats"
-            :key="format"
-            class="pill"
-            type="button"
-            :aria-label="`Export ${format.toUpperCase()}`"
-            @click="handleExport(format)">
-            {{ format.toUpperCase() }}
+      <div class="page__actions" style="display:flex;gap:8px;align-items:center">
+        <div style="position:relative">
+          <button ref="downloadButtonRef" class="icon-btn" aria-haspopup="true" :aria-expanded="downloadOpen" @click="toggleDownload" title="Export">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 21H3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div v-if="downloadOpen" ref="downloadDropdownRef" class="dropdown">
+            <button v-for="format in exportFormats" :key="format" class="dropdown-item" @click="selectDownload(format)">
+              <span class="item-icon"> 
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="item-label">{{ format.toUpperCase() }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div style="position:relative">
+          <button ref="shareButtonRef" class="icon-btn" aria-haspopup="true" :aria-expanded="shareOpen" @click="toggleShare" title="Share">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 6l-4-4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div v-if="shareOpen" ref="shareDropdownRef" class="dropdown">
+            <button class="dropdown-item" @click="openEmbed">
+              <span class="item-icon"> 
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 17v2a1 1 0 001 1h6a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 7V5a1 1 0 011-1h6a1 1 0 011 1v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="item-label">Embed this chart</span>
+            </button>
+            <button class="dropdown-item">
+              <span class="item-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 6l-4-4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="item-label">Share via…</span>
+            </button>
+            <button class="dropdown-item" @click="selectShare('png')">
+              <span class="item-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 21h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </span>
+              <span class="item-label">Copy chart as image</span>
+            </button>
+            <button class="dropdown-item">
+              <span class="item-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 14l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 12v7a1 1 0 01-1 1H4a1 1 0 01-1-1v-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="item-label">Copy link to chart</span>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <button class="icon-btn" title="Fullscreen" @click="(async ()=>{ try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); } catch(e){ console.warn(e); } })()">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 4h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M4 4v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M20 20h-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M20 20v-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           </button>
         </div>
-        
       </div>
     </header>
 
@@ -385,5 +490,37 @@ async function handleExport(format: ExportFormat) {
         <div v-if="validationError" class="alert">{{ validationError }}</div>
       </div>
     </section>
+    <div v-if="embedOpen">
+      <div style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:white;border:1px solid #e2e8f0;padding:12px;z-index:1000;max-width:90%;width:720px;">
+        <h3 class="panel__title">Embed Chart</h3>
+        <p class="muted">Copy and paste this code to embed the chart:</p>
+        <textarea readonly style="width:100%;height:120px;font-family:monospace;white-space:pre-wrap;overflow:auto;" :value="embedSnippet"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+          <button class="pill" @click="copyEmbed">Copy</button>
+          <button class="pill" @click="embedOpen = false">Close</button>
+        </div>
+      </div>
+      <div class="embed-backdrop" @click="embedOpen = false" style="position:fixed;inset:0;background:rgba(0,0,0,0.3);z-index:900;"></div>
+    </div>
   </main>
 </template>
+
+<style scoped>
+.icon-btn {
+  background: #ffffff;
+  border: 1px solid #e6eef8;
+  padding: 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.icon-btn:hover { background:#f8fbff }
+.icon { color: #374151 }
+.dropdown { position:absolute; right:0; margin-top:8px; background:white; border:1px solid #e2e8f0; border-radius:6px; box-shadow:0 8px 24px rgba(2,6,23,0.12); z-index:40; padding:8px; }
+.dropdown-item { display:flex; gap:10px; align-items:center; width:240px; padding:8px; border-radius:6px; background:transparent; border:0; text-align:left; cursor:pointer }
+.dropdown-item:hover { background:#f8fafc }
+.item-icon { width:28px; display:inline-flex; align-items:center; justify-content:center; color:#6b7280 }
+.item-label { flex:1; color:#111827 }
+</style>
