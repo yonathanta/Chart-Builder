@@ -121,6 +121,7 @@ const areaConfig = ref<AreaChartConfig>({
 const isValid = computed(() => !validationError.value);
 
 const panelOpen = ref({
+  type: false,
   options: false,
   builder: false,
   data: false,
@@ -147,7 +148,14 @@ watch(
 );
 
 function updateType(type: ChartSpec["type"]) {
-  spec.value = { ...spec.value, type };
+  // When switching to certain chart types, suggest sensible default layout presets.
+  if (type === 'orbitDonut') {
+    spec.value = { ...spec.value, type, layout: { ...spec.value.layout, preset: 'grid' } };
+  } else if (type === 'dotDonut') {
+    spec.value = { ...spec.value, type, layout: { ...spec.value.layout, preset: 'grid' } };
+  } else {
+    spec.value = { ...spec.value, type };
+  }
   refreshPreview();
 }
 
@@ -213,6 +221,14 @@ function onPreviewRefresh() {
   });
 }
 
+function togglePanel(key: 'type' | 'options' | 'builder' | 'data') {
+  const wasOpen = (panelOpen.value as any)[key];
+  // close all panels first
+  Object.keys(panelOpen.value).forEach(k => { (panelOpen.value as any)[k] = false; });
+  // toggle the requested panel
+  (panelOpen.value as any)[key] = !wasOpen;
+}
+
 const previewRef = ref<InstanceType<typeof PreviewPane> | null>(null);
 
 async function downloadBlob(blob: Blob, fileName: string) {
@@ -264,7 +280,7 @@ async function handleExport(format: ExportFormat) {
     <header class="page__header">
       <div>
         <p class="eyebrow">Chart Builder</p>
-        <h1>Specification-driven charts</h1>
+        <h1>ECAStats Chart Builder</h1>
         <p class="muted">Choose type of Graph, configure, preview and export.</p>
       </div>
       <div class="page__actions">
@@ -279,58 +295,14 @@ async function handleExport(format: ExportFormat) {
             {{ format.toUpperCase() }}
           </button>
         </div>
-        <div class="badge" :class="{ 'badge--ok': isValid, 'badge--error': !isValid }">
-          {{ isValid ? "Spec valid" : "Spec invalid" }}
-        </div>
+        
       </div>
     </header>
 
     <section class="layout">
       <div class="layout__side">
-        <ChartTypeSelector :selected="spec.type" @select="updateType" @preset="applyPreset" />
-
         <section class="panel panel--foldable">
-          <button class="panel__toggle" type="button" @click="panelOpen.options = !panelOpen.options">
-            <span>Configure options</span>
-            <span class="chevron" :class="{ 'chevron--open': panelOpen.options }">›</span>
-          </button>
-          <div v-if="panelOpen.options" class="panel__body">
-            <ChartOptionsPanel :layout="spec.layout" :style="spec.style" @update:layout="updateLayout" @update:style="updateStyle" />
-          </div>
-        </section>
-
-        <section v-if="spec.type === 'bar'" class="panel panel--foldable">
-          <button class="panel__toggle" type="button" @click="panelOpen.builder = !panelOpen.builder">
-            <span>Builder controls</span>
-            <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
-          </button>
-          <div v-if="panelOpen.builder" class="panel__body">
-            <BarBuilderControls :config="barConfig" :fields="dataFields" @update:config="updateBarConfig" />
-          </div>
-        </section>
-
-        <section v-if="spec.type === 'line'" class="panel panel--foldable">
-          <button class="panel__toggle" type="button" @click="panelOpen.builder = !panelOpen.builder">
-            <span>Builder controls</span>
-            <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
-          </button>
-          <div v-if="panelOpen.builder" class="panel__body">
-            <LineBuilderControls :config="lineConfig" @update:config="updateLineConfig" />
-          </div>
-        </section>
-
-        <section v-if="spec.type === 'area'" class="panel panel--foldable">
-          <button class="panel__toggle" type="button" @click="panelOpen.builder = !panelOpen.builder">
-            <span>Builder controls</span>
-            <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
-          </button>
-          <div v-if="panelOpen.builder" class="panel__body">
-            <AreaBuilderControls :config="areaConfig" @update:config="updateAreaConfig" />
-          </div>
-        </section>
-
-        <section class="panel panel--foldable">
-          <button class="panel__toggle" type="button" @click="panelOpen.data = !panelOpen.data">
+          <button class="panel__toggle" type="button" @click="togglePanel('data')">
             <span>Bind data source</span>
             <span class="chevron" :class="{ 'chevron--open': panelOpen.data }">›</span>
           </button>
@@ -343,6 +315,56 @@ async function handleExport(format: ExportFormat) {
               @navigate:config="() => { panelOpen.options = true; panelOpen.builder = true; }"
               @preview-refresh="onPreviewRefresh"
             />
+          </div>
+        </section>
+
+        <section class="panel panel--foldable">
+          <button class="panel__toggle" type="button" @click="togglePanel('type')">
+            <span>Select chart type</span>
+            <span class="chevron" :class="{ 'chevron--open': panelOpen.type }">›</span>
+          </button>
+          <div v-if="panelOpen.type" class="panel__body">
+            <ChartTypeSelector :selected="spec.type" @select="updateType" @preset="applyPreset" />
+          </div>
+        </section>
+
+        <section class="panel panel--foldable">
+          <button class="panel__toggle" type="button" @click="togglePanel('options')">
+            <span>Configure options</span>
+            <span class="chevron" :class="{ 'chevron--open': panelOpen.options }">›</span>
+          </button>
+          <div v-if="panelOpen.options" class="panel__body">
+            <ChartOptionsPanel :layout="spec.layout" :style="spec.style" @update:layout="updateLayout" @update:style="updateStyle" />
+          </div>
+        </section>
+
+        <section v-if="spec.type === 'bar'" class="panel panel--foldable">
+          <button class="panel__toggle" type="button" @click="togglePanel('builder')">
+            <span>Builder controls</span>
+            <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
+          </button>
+          <div v-if="panelOpen.builder" class="panel__body">
+            <BarBuilderControls :config="barConfig" :fields="dataFields" @update:config="updateBarConfig" />
+          </div>
+        </section>
+
+        <section v-if="spec.type === 'line'" class="panel panel--foldable">
+          <button class="panel__toggle" type="button" @click="togglePanel('builder')">
+            <span>Builder controls</span>
+            <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
+          </button>
+          <div v-if="panelOpen.builder" class="panel__body">
+            <LineBuilderControls :config="lineConfig" @update:config="updateLineConfig" />
+          </div>
+        </section>
+
+        <section v-if="spec.type === 'area'" class="panel panel--foldable">
+          <button class="panel__toggle" type="button" @click="togglePanel('builder')">
+            <span>Builder controls</span>
+            <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
+          </button>
+          <div v-if="panelOpen.builder" class="panel__body">
+            <AreaBuilderControls :config="areaConfig" @update:config="updateAreaConfig" />
           </div>
         </section>
 

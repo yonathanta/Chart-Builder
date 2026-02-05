@@ -41,7 +41,7 @@ const tiles: Tile[] = [
   { key: "pie", label: "Pie Chart", type: "unsupported", enabled: false, icon: "M12 4v8h8A8 8 0 0012 4zM4 12a8 8 0 008 8v-8H4z" },
   { key: "multi-pies", label: "Multiple Pies", type: "unsupported", enabled: false, icon: "M7 7a4 4 0 100 8 4 4 0 000-8zm10-2a4 4 0 100 8 4 4 0 000-8z" },
   { key: "donut", label: "Donut Chart", type: "unsupported", enabled: false, icon: "M12 4a8 8 0 100 16 8 8 0 000-16zm0 5a3 3 0 110 6 3 3 0 010-6z" },
-  { key: "orbit-donut", label: "Orbit Donut", type: "orbitDonut", enabled: true, icon: "M12 4a8 8 0 100 16 8 8 0 000-16zm0 5a3 3 0 110 6 3 3 0 010-6z" },
+  { key: "orbit-donut", label: "Multiple Pies", type: "orbitDonut", enabled: true, icon: "M7 7a4 4 0 100 8 4 4 0 000-8zm10-2a4 4 0 100 8 4 4 0 000-8z" },
 ];
 
 function onClick(tile: Tile) {
@@ -51,7 +51,7 @@ function onClick(tile: Tile) {
   // Suggest preset changes for supported categories
   if (tile.type === "bar") {
     const map: Record<string, { layoutPreset?: "horizontal" | "vertical" | "grid" | "smallMultiples"; mode?: "grouped" | "stacked" | "percent" | "simple" }> = {
-      bar: { layoutPreset: "horizontal", mode: "simple" },
+      bar: { layoutPreset: "vertical", mode: "simple" },
       "bar-stacked": { layoutPreset: "horizontal", mode: "stacked" },
       "bar-grouped": { layoutPreset: "horizontal", mode: "grouped" },
       "bar-split": { layoutPreset: "horizontal", mode: "percent" },

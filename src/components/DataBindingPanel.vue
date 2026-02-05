@@ -152,9 +152,11 @@ function downloadExcelTemplate() {
   triggerDownload(csv, "chart-template.csv", "text/csv");
 }
 
-onBeforeUnmount(() => {
-  if (fileObjectUrl) URL.revokeObjectURL(fileObjectUrl);
-});
+// Keep the blob URL alive while the preview may still need it.
+// We previously revoked the blob URL on unmount which caused the preview
+// to sometimes attempt to fetch an already-revoked blob (ERR_FILE_NOT_FOUND).
+// The blob is revoked when replaced or when the page unloads; explicit
+// revocation can be added later if desired.
 </script>
 
 <template>
