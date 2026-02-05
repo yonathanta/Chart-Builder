@@ -10,7 +10,6 @@ export type BuilderBarConfig = {
   showGridlines?: boolean;
   showValues?: boolean;
   xLabelOffset?: number;
-  xLabelRotation?: number;
   yLabelOffset?: number;
   labelAlignment?: 'left' | 'right';
   separateLabelLine?: boolean;
@@ -21,17 +20,6 @@ export type BuilderBarConfig = {
   valueMin?: number;
   valueMax?: number;
   customizeColors?: boolean;
-  // Gradient coloring across min/max values
-  useGradientColors?: boolean;
-  gradientLowColor?: string;
-  gradientHighColor?: string;
-  // Value-based coloring
-  useValueColors?: boolean;
-  lowThreshold?: number;
-  highThreshold?: number;
-  lowColor?: string;
-  midColor?: string;
-  highColor?: string;
   separatingLines?: boolean;
   barBackground?: boolean;
   thickerBars?: boolean;
@@ -95,7 +83,6 @@ export function renderBarChart(
     showGridlines: config.showGridlines ?? true,
     showValues: config.showValues ?? true,
     xLabelOffset: config.xLabelOffset ?? 0,
-    xLabelRotation: config.xLabelRotation ?? 0,
     yLabelOffset: config.yLabelOffset ?? 0,
     labelAlignment: config.labelAlignment ?? 'left',
     separateLabelLine: config.separateLabelLine ?? false,
@@ -103,18 +90,9 @@ export function renderBarChart(
     numberFormat: config.numberFormat ?? ',.2~f',
     swapLabelsAndValues: config.swapLabelsAndValues ?? false,
     replaceCodesWithFlags: config.replaceCodesWithFlags ?? false,
-    valueMin: (config.valueMin ?? undefined) as unknown as number,
-    valueMax: (config.valueMax ?? undefined) as unknown as number,
+    valueMin: config.valueMin ?? undefined,
+    valueMax: config.valueMax ?? undefined,
     customizeColors: config.customizeColors ?? false,
-    useGradientColors: config.useGradientColors ?? false,
-    gradientLowColor: config.gradientLowColor ?? '#a7f3d0',
-    gradientHighColor: config.gradientHighColor ?? '#065f46',
-    useValueColors: config.useValueColors ?? false,
-    lowThreshold: config.lowThreshold ?? 10,
-    highThreshold: config.highThreshold ?? 90,
-    lowColor: config.lowColor ?? '#a7f3d0',
-    midColor: config.midColor ?? '#34d399',
-    highColor: config.highColor ?? '#065f46',
     separatingLines: config.separatingLines ?? false,
     barBackground: config.barBackground ?? false,
     thickerBars: config.thickerBars ?? false,
@@ -187,33 +165,6 @@ export function renderBarChart(
     .data([null])
     .join('g')
     .attr('class', 'overlays');
-
-  // Compact number formatter for display (labels + tooltip)
-  const humanizeValue = (val: unknown) => {
-    const num = Number(val);
-    if (!Number.isFinite(num)) return String(val ?? '');
-    const abs = Math.abs(num);
-    const fmt = (n: number, suffix: string) => `${+(n.toFixed(1))}${suffix}`;
-    if (abs >= 1_000_000_000) return fmt(num / 1_000_000_000, 'B');
-    if (abs >= 1_000_000) return fmt(num / 1_000_000, 'M');
-    if (abs >= 1_000) return fmt(num / 1_000, 'K');
-    return `${num}`;
-  };
-
-  // Tooltip element for hover
-  let tooltipEl: HTMLDivElement | null = null;
-  tooltipEl = document.createElement('div');
-  tooltipEl.style.position = 'absolute';
-  tooltipEl.style.pointerEvents = 'none';
-  tooltipEl.style.background = 'rgba(17,24,39,0.9)';
-  tooltipEl.style.color = '#fff';
-  tooltipEl.style.padding = '6px 8px';
-  tooltipEl.style.borderRadius = '6px';
-  tooltipEl.style.fontSize = '12px';
-  tooltipEl.style.transform = 'translate(-50%, -120%)';
-  tooltipEl.style.opacity = '0';
-  tooltipEl.style.transition = 'opacity 120ms ease';
-  (svgEl.parentElement || svgEl).appendChild(tooltipEl);
 
   /* ============================
      2. CONFIG EXTRACTION
@@ -325,7 +276,6 @@ export function renderBarChart(
     const values = data.map(d => Number(d[valueKey]));
     const computedMax = d3.max(values) ?? 0;
     const computedMin = d3.min(values) ?? 0;
-    // Default domain min should include 0 so bars start at the x-axis (baseline).
     const domMin = cfg.valueMin ?? Math.min(0, computedMin as number);
     const domMax = cfg.valueMax ?? computedMax;
     valueLinear.domain([domMin, domMax]);
@@ -375,41 +325,33 @@ export function renderBarChart(
   }
 
   // Gridlines join; fade instead of remove to respect toggle changes.
+  const gridAxis = orientation === 'vertical'
+    ? d3.axisLeft(valueLinear).tickSize(-innerWidth).tickFormat(() => '')
+    : d3.axisBottom(valueLinear).tickSize(-innerHeight).tickFormat(() => '');
+
   const grid = gridLayer
     .selectAll<SVGGElement, unknown>('g.grid')
     .data([null])
     .join('g')
     .attr('class', 'grid');
 
-  const gridTransform = `translate(0,0)`;
+  const gridTransform = orientation === 'vertical'
+    ? `translate(0,0)`
+    : `translate(0,${innerHeight})`;
 
   // Avoid animating gridlines when flipping orientation to prevent shearing.
   grid.interrupt();
-  grid.attr('transform', gridTransform);
-
-  // Draw straight gridlines using value ticks to avoid skew in horizontal mode.
-  const gridTicks = valueLinear.ticks(6);
-  const gridLines = grid
-    .selectAll<SVGLineElement, number>('line.value-grid')
-    .data(gridTicks)
-    .join('line')
-    .attr('class', 'value-grid')
-    .attr('stroke', '#cbd5e1')
-    .attr('stroke-width', 1);
-
-  gridLines
-    .attr('x1', t => orientation === 'vertical' ? 0 : valueLinear(t))
-    .attr('x2', t => orientation === 'vertical' ? innerWidth : valueLinear(t))
-    .attr('y1', t => orientation === 'vertical' ? valueLinear(t) : innerHeight)
-    .attr('y2', t => orientation === 'vertical' ? valueLinear(t) : 0);
+  grid
+    .attr('transform', gridTransform)
+    .call(gridAxis as any);
 
   if (animation && !orientationChanged) {
-    gridLines
+    grid
       .transition()
       .duration(cfg.animationDuration)
       .style('opacity', cfg.showGridlines ? 1 : 0.05);
   } else {
-    gridLines.style('opacity', cfg.showGridlines ? 1 : 0.05);
+    grid.style('opacity', cfg.showGridlines ? 1 : 0.05);
   }
 
   barBackgroundLayer
@@ -426,13 +368,6 @@ export function renderBarChart(
      7. BARS + INTERACTIONS
      ============================ */
 
-  const gradientScale = cfg.useGradientColors
-    ? d3.scaleLinear<string>()
-        .domain(valueLinear.domain() as [number, number])
-        .range([cfg.gradientLowColor, cfg.gradientHighColor])
-        .clamp(true)
-    : null;
-
   const palette = (style.palette as string[] | undefined) || undefined;
   const colorScale = cfg.customizeColors && palette?.length
     ? d3.scaleOrdinal<string, string>().domain(categories.map(String)).range(palette)
@@ -448,26 +383,7 @@ export function renderBarChart(
 
   const barId = (d: any) => (seriesKey ? `${d[categoryKey]}-${d[seriesKey]}` : `${d[categoryKey]}`);
 
-  const resolveColor = (d: any) => {
-    const override = overrides?.[barId(d)]?.color;
-    if (override) return override;
-    if (gradientScale) {
-      const v = Number(d[valueKey]);
-      if (Number.isFinite(v)) return gradientScale(v);
-    }
-    // Value-based coloring takes precedence when enabled
-    if (cfg.useValueColors) {
-      const v = Number(d[valueKey]);
-      if (Number.isFinite(v)) {
-        if (v < (cfg.lowThreshold ?? 0)) return cfg.lowColor || cfg.barColor;
-        if (v > (cfg.highThreshold ?? 0)) return cfg.highColor || cfg.barColor;
-        return cfg.midColor || cfg.barColor;
-      }
-    }
-    // Otherwise use category palette when available
-    if (colorScale) return colorScale(String(d[categoryKey]));
-    return cfg.barColor;
-  };
+  const resolveColor = (d: any) => overrides?.[barId(d)]?.color ?? (colorScale ? colorScale(String(d[categoryKey])) : cfg.barColor);
 
   const barX = (d: any) =>
     orientation === 'vertical'
@@ -476,26 +392,17 @@ export function renderBarChart(
 
   const barY = (d: any) =>
     orientation === 'vertical'
-      ? ((): number => {
-          const v = Number(d[valueKey]);
-          return Number.isFinite(v) ? valueLinear(v) : valueLinear(0);
-        })()
+      ? valueLinear(d[valueKey])
       : (categoryBand(d[categoryKey]) ?? 0) + (mode === 'grouped' && seriesKey ? seriesBand(d[seriesKey]) ?? 0 : 0);
 
   const barWidth = (d: any) =>
     orientation === 'vertical'
       ? mode === 'grouped' && seriesKey ? seriesBand.bandwidth() : categoryBand.bandwidth()
-      : ((): number => {
-          const v = Number(d[valueKey]);
-          return Number.isFinite(v) ? Math.max(0, valueLinear(v)) : 0;
-        })();
+      : valueLinear(d[valueKey]);
 
   const barHeight = (d: any) =>
     orientation === 'vertical'
-      ? ((): number => {
-          const v = Number(d[valueKey]);
-          return Number.isFinite(v) ? Math.max(0, innerHeight - valueLinear(v)) : 0;
-        })()
+      ? innerHeight - valueLinear(d[valueKey])
       : mode === 'grouped' && seriesKey ? seriesBand.bandwidth() : categoryBand.bandwidth();
 
   const bars = barsLayer
@@ -512,13 +419,13 @@ export function renderBarChart(
         if (orientation === 'vertical') {
           rects
             .attr('x', d => barX(d))
-            .attr('width', d => barWidth(d))
+            .attr('width', d => Math.max(0, barWidth(d)))
             .attr('y', innerHeight)
             .attr('height', 0);
         } else {
           rects
             .attr('y', d => barY(d))
-            .attr('height', d => barHeight(d))
+            .attr('height', d => Math.max(0, barHeight(d)))
             .attr('x', 0)
             .attr('width', 0);
         }
@@ -540,8 +447,8 @@ export function renderBarChart(
     .attr('stroke-width', cfg.separatingLines ? 1 : 0)
     .attr('x', d => (orientation === 'vertical' ? barX(d) : 0))
     .attr('y', d => (orientation === 'vertical' ? barY(d) : barY(d)))
-    .attr('width', d => barWidth(d))
-    .attr('height', d => barHeight(d));
+    .attr('width', d => Math.max(0, barWidth(d)))
+    .attr('height', d => Math.max(0, barHeight(d)));
 
   // Hover interactions: darken on hover, return on leave.
   bars
@@ -551,36 +458,18 @@ export function renderBarChart(
     .on('click', function (event, d) {
       if (onSelect) onSelect(barId(d));
     })
-    .on('mouseover', function (event, d) {
+    .on('mouseover', function (_, d) {
       const base = resolveColor(d);
       d3.select(this)
         .transition()
         .duration(cfg.animationDuration / 2)
         .attr('fill', colorDarken(base));
-      if (tooltipEl) {
-        const val = d[valueKey];
-        const seriesVal = seriesKey ? d[seriesKey] : undefined;
-        const tooltipVal = val;
-        const content = `${seriesVal !== undefined ? `<div><strong>${String(seriesVal)}</strong></div>` : ''}<div>Value: ${tooltipVal}</div>`;
-        const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
-        tooltipEl.style.left = `${event.clientX - rect.left}px`;
-        tooltipEl.style.top = `${event.clientY - rect.top}px`;
-        tooltipEl.innerHTML = content;
-        tooltipEl.style.opacity = '1';
-      }
-    })
-    .on('mousemove', function (event, d) {
-      if (!tooltipEl) return;
-      const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
-      tooltipEl.style.left = `${event.clientX - rect.left}px`;
-      tooltipEl.style.top = `${event.clientY - rect.top}px`;
     })
     .on('mouseout', function (_, d) {
       d3.select(this)
         .transition()
         .duration(cfg.animationDuration / 2)
         .attr('fill', resolveColor(d));
-      if (tooltipEl) tooltipEl.style.opacity = '0';
     });
 
   // Labels per bar with override text priority.
@@ -676,7 +565,7 @@ export function renderBarChart(
       .attr('width', d => {
         if (orientation === 'vertical') return bandwidth;
         if (ov.type === 'range') return Math.abs(valueLinear(d.__ovMax) - valueLinear(d.__ovMin));
-        return valueLinear(d.__ovMax);
+        return Math.max(0, valueLinear(d.__ovMax));
       })
       .attr('height', d => {
         if (orientation === 'vertical') {
@@ -685,7 +574,7 @@ export function renderBarChart(
             const maxV = Math.max(d.__ovMin, d.__ovMax);
             return Math.max(0, valueLinear(minV) - valueLinear(maxV));
           }
-          return innerHeight - valueLinear(d.__ovMax);
+          return Math.max(0, innerHeight - valueLinear(d.__ovMax));
         }
         return bandwidth;
       });
@@ -722,18 +611,14 @@ export function renderBarChart(
     return custom ? `${cat}: ${value} (${custom})` : `${cat}: ${value}`;
   });
 
-  const xLabelRotation = cfg.xLabelRotation ?? 0;
-  const xLabelAnchor = xLabelRotation === 0 ? 'middle' : xLabelRotation > 0 ? 'start' : 'end';
-
-  xAxisLayer
-    .selectAll<SVGTextElement, unknown>('text')
-    .attr('dy', `${cfg.xLabelOffset}px`)
-    .attr('transform', xLabelRotation ? `rotate(${xLabelRotation})` : null)
-    .style('text-anchor', xLabelAnchor);
-
-  yAxisLayer
-    .selectAll<SVGTextElement, unknown>('text')
-    .attr('dy', `${cfg.yLabelOffset}px`);
+  // Adjust category label offset on the category axis (both orientations).
+  if (orientation === 'vertical') {
+    xAxisLayer.selectAll('text').attr('dy', `${cfg.xLabelOffset}px`);
+    yAxisLayer.selectAll('text').attr('dy', `${cfg.yLabelOffset}px`);
+  } else {
+    xAxisLayer.selectAll('text').attr('dy', `${cfg.xLabelOffset}px`);
+    yAxisLayer.selectAll('text').attr('dy', `${cfg.yLabelOffset}px`);
+  }
 
   /* ============================
      SMALL MULTIPLES FACETING
@@ -791,22 +676,10 @@ export function renderBarChart(
         .data([null])
         .join('g')
         .attr('class', 'facet-grid')
-        .attr('transform', `translate(0,0)`);
+        .attr('transform', `translate(0,0)`)
+        .call(d3.axisLeft(yFacet).tickSize(-innerWidth).tickFormat(() => '') as any);
 
-      const gridTicks = yFacet.ticks(4);
-      const gridLines = grid
-        .selectAll<SVGLineElement, number>('line.value-grid')
-        .data(gridTicks)
-        .join('line')
-        .attr('class', 'value-grid')
-        .attr('stroke', '#cbd5e1')
-        .attr('stroke-width', 1)
-        .attr('x1', 0)
-        .attr('x2', innerWidth)
-        .attr('y1', t => yFacet(t))
-        .attr('y2', t => yFacet(t));
-
-      gridLines
+      grid
         .transition()
         .duration(animation ? cfg.animationDuration : 0)
         .style('opacity', cfg.showGridlines ? 1 : 0.05);
@@ -860,15 +733,8 @@ export function renderBarChart(
         .style('font-size', '11px')
         .style('opacity', 0.9);
 
-      xLayer
-        .selectAll<SVGTextElement, unknown>('text')
-        .attr('dy', `${cfg.xLabelOffset}px`)
-        .attr('transform', xLabelRotation ? `rotate(${xLabelRotation})` : null)
-        .style('text-anchor', xLabelAnchor);
-
-      yLayer
-        .selectAll<SVGTextElement, unknown>('text')
-        .attr('dy', `${cfg.yLabelOffset}px`);
+      xLayer.selectAll('text').attr('dy', `${cfg.xLabelOffset}px`);
+      yLayer.selectAll('text').attr('dy', `${cfg.yLabelOffset}px`);
 
       bars.attr('aria-label', d => {
         const custom = overrides?.[`${d[categoryKey]}-${facetKey}`]?.label;
