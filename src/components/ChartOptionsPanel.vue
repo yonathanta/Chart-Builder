@@ -4,11 +4,13 @@ import type { Layout, Style } from "../specs/chartSpec";
 const props = defineProps<{
   layout?: Layout;
   style?: Style;
+  title?: string;
 }>();
 
 const emit = defineEmits<{
   (e: "update:layout", payload: Partial<Layout>): void;
   (e: "update:style", payload: Partial<Style>): void;
+  (e: "update:title", payload: string): void;
 }>();
 
 const layoutPresets: Layout["preset"][] = [
@@ -39,6 +41,16 @@ function updateStyle(key: keyof Style, value: unknown) {
     </header>
 
     <div class="form-grid">
+      <label class="form-field" style="grid-column: 1 / -1;">
+        <span>Chart title</span>
+        <input
+          type="text"
+          placeholder="Enter chart title..."
+          :value="title"
+          @input="emit('update:title', ($event.target as HTMLInputElement).value)"
+        />
+      </label>
+
       <label class="form-field">
         <span>Layout preset</span>
         <select

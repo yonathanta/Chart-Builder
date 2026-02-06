@@ -41,6 +41,7 @@ const tiles: Tile[] = [
   { key: "pie", label: "Pie Chart", type: "pie", enabled: true, icon: "M12 4v8h8A8 8 0 0012 4zM4 12a8 8 0 008 8v-8H4z" },
   { key: "multi-pies", label: "Multiple Pies", type: "unsupported", enabled: false, icon: "M7 7a4 4 0 100 8 4 4 0 000-8zm10-2a4 4 0 100 8 4 4 0 000-8z" },
   { key: "donut", label: "Donut Chart", type: "unsupported", enabled: false, icon: "M12 4a8 8 0 100 16 8 8 0 000-16zm0 5a3 3 0 110 6 3 3 0 010-6z" },
+  { key: "map", label: "Africa Map", type: "map", enabled: true, icon: "M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" },
   { key: "orbit-donut", label: "Multiple Pies", type: "orbitDonut", enabled: true, icon: "M7 7a4 4 0 100 8 4 4 0 000-8zm10-2a4 4 0 100 8 4 4 0 000-8z" },
 ];
 

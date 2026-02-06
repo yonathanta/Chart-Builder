@@ -132,12 +132,14 @@ export function renderPieDonutChart(
 
     // Title
     if (spec.title) {
+        svg.selectAll('text.chart-title').remove();
         g.append("text")
+            .attr("class", "chart-title")
             .attr("text-anchor", "middle")
-            .attr("y", -height / 2 + 20)
-            .attr("font-size", "16px")
-            .attr("font-weight", "600")
-            .attr("fill", "#1e293b")
+            .attr("y", -height / 2 + 25)
+            .style("font-size", "18px")
+            .style("font-weight", "bold")
+            .style("fill", "#374151")
             .text(spec.title);
     }
 }

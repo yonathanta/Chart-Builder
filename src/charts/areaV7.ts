@@ -58,6 +58,9 @@ export type AreaChartConfig = {
   animate?: boolean;
   duration?: number;
   easing?: (t: number) => number; // d3-ease fn
+
+  // 9. Title Support
+  title?: string;
 };
 
 export type AreaChartInstance = {
@@ -72,7 +75,7 @@ const DEFAULTS: Required<Omit<AreaChartConfig,
   // Layout
   width: 720,
   height: 420,
-  margin: { top: 24, right: 24, bottom: 40, left: 52 },
+  margin: { top: 60, right: 24, bottom: 40, left: 52 },
   responsive: true,
   backgroundColor: '#ffffff',
 
@@ -124,6 +127,7 @@ const DEFAULTS: Required<Omit<AreaChartConfig,
   animate: true,
   duration: 800,
   easing: d3.easeCubicOut,
+  title: '',
 };
 
 function getCurveFactory(type: NonNullable<AreaChartConfig['curveType']>) {
@@ -179,6 +183,19 @@ export function drawAreaChart(container: string | HTMLElement, data: any[], conf
     .attr('height', cfg.responsive ? 'auto' : height)
     .style('display', 'block')
     .style('background', cfg.backgroundColor || DEFAULTS.backgroundColor);
+
+  // Render Title
+  if (cfg.title) {
+    svg.append('text')
+      .attr('class', 'chart-title')
+      .attr('x', width / 2)
+      .attr('y', 25)
+      .attr('text-anchor', 'middle')
+      .style('font-size', '18px')
+      .style('font-weight', 'bold')
+      .style('fill', '#374151')
+      .text(cfg.title);
+  }
 
   const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 

@@ -9,6 +9,7 @@ import { renderBubbleChart } from "../charts/bubble";
 import { renderDotDonutChart } from "../charts/dotDonut";
 import { renderOrbitDonutChart } from "../charts/orbitDonut";
 import { renderPieDonutChart, type PieConfig } from "../charts/pie";
+import { renderAfricaMap, type MapConfig } from "../charts/map";
 
 const props = defineProps<{
   spec: ChartSpec;
@@ -17,6 +18,7 @@ const props = defineProps<{
   lineConfig?: Partial<LineChartConfig>;
   areaConfig?: Partial<AreaChartConfig>;
   pieConfig?: PieConfig;
+  mapConfig?: MapConfig;
   selectedYears?: string[];
 }>();
 
@@ -264,6 +266,10 @@ async function loadAndRender() {
       svg.style.display = 'block';
       renderPieDonutChart(svg, props.spec, filteredRows.value || [], props.pieConfig);
       status.value = 'Rendered pie chart';
+    } else if (props.spec.type === 'map') {
+      svg.style.display = 'block';
+      renderAfricaMap(svg, props.spec, filteredRows.value || [], props.mapConfig);
+      status.value = 'Rendered Africa map';
     } else if (props.spec.type === "line") {
       // Hide the bar SVG and render line into the frame container
       svg.style.display = "none";
@@ -428,6 +434,14 @@ watch(
 );
 
 watch(
+  () => props.mapConfig,
+  () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
+watch(
   () => props.pieConfig,
   () => {
     renderWithCurrentRows();
@@ -573,6 +587,7 @@ function renderWithCurrentRows() {
       animate: props.lineConfig?.animate ?? true,
       duration: props.lineConfig?.duration ?? 800,
       yDomain: props.lineConfig?.yDomain,
+      title: props.spec.title,
     };
     let lineRows = filteredRows.value;
     const seriesField = props.spec.encoding.series?.field;
@@ -592,7 +607,7 @@ function renderWithCurrentRows() {
       yType: 'linear',
       width: props.spec.layout?.width ?? 720,
       height: props.spec.layout?.height ?? 420,
-      margin: props.areaConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
+      margin: props.areaConfig?.margin ?? { top: 60, right: 24, bottom: 40, left: 52 },
       responsive: true,
       backgroundColor: undefined,
       xDomain: props.areaConfig?.xDomain,
@@ -627,6 +642,7 @@ function renderWithCurrentRows() {
       duration: props.areaConfig?.duration ?? 800,
       easing: undefined,
       sortData: props.areaConfig?.sortData ?? false,
+      title: props.spec.title,
     };
     let areaRows = filteredRows.value;
     const seriesField = props.spec.encoding.series?.field;
@@ -646,12 +662,15 @@ function renderWithCurrentRows() {
     } else if (props.spec.type === 'pie') {
       svgRef.value!.style.display = 'block';
       renderPieDonutChart(svgRef.value!, props.spec, filteredRows.value || [], props.pieConfig);
+    } else if (props.spec.type === 'map') {
+      svgRef.value!.style.display = 'block';
+      renderAfricaMap(svgRef.value!, props.spec, filteredRows.value || [], props.mapConfig);
     }
 }
 
 defineExpose({
   getSvgEl: () => {
-    if (props.spec.type === 'bar' || props.spec.type === 'bubble' || props.spec.type === 'dotDonut' || props.spec.type === 'orbitDonut' || props.spec.type === 'pie') return svgRef.value;
+    if (props.spec.type === 'bar' || props.spec.type === 'bubble' || props.spec.type === 'dotDonut' || props.spec.type === 'orbitDonut' || props.spec.type === 'pie' || props.spec.type === 'map') return svgRef.value;
     return frameRef.value?.querySelector('svg') as SVGSVGElement | null;
   },
   reload: loadAndRender,

@@ -95,9 +95,25 @@ export function renderDotDonutChart(
     svg.selectAll('*').remove();
 
     // 4. Render
+    // Render Title
+    if (spec.title) {
+        svg.selectAll('text.chart-title').remove();
+        svg.append('text')
+            .attr('class', 'chart-title')
+            .attr('x', width / 2)
+            .attr('y', 25)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '18px')
+            .style('font-weight', 'bold')
+            .style('fill', '#374151')
+            .style('font-family', fontFamily)
+            .text(spec.title);
+    }
+
     const root = svg
         .append('g')
         .attr('class', 'chart-root')
+        .attr('transform', spec.title ? `translate(0, 40)` : '')
         .attr('font-family', fontFamily);
 
     const minDim = Math.min(width, totalHeight);

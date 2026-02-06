@@ -40,6 +40,9 @@ export type LineChartConfig = {
   // Animation
   animate?: boolean;
   duration?: number;
+
+  // Title
+  title?: string;
 };
 
 export type LineChartInstance = {
@@ -90,6 +93,9 @@ const DEFAULTS: Required<Omit<LineChartConfig,
   // Animation
   animate: true,
   duration: 800,
+
+  // Title
+  title: '',
 };
 
 function getCurveFactory(type: NonNullable<LineChartConfig['curveType']>) {
@@ -199,6 +205,20 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
     .attr('pointer-events', enableTooltip ? 'all' : 'none')
     .attr('width', innerWidth)
     .attr('height', innerHeight);
+
+  // Render Title
+  if (cfg.title) {
+    svg.selectAll('text.chart-title').remove();
+    svg.append('text')
+      .attr('class', 'chart-title')
+      .attr('x', cfg.width! / 2)
+      .attr('y', 25)
+      .attr('text-anchor', 'middle')
+      .style('font-size', '18px')
+      .style('font-weight', 'bold')
+      .style('fill', '#374151')
+      .text(cfg.title);
+  }
 
   // Line generator
   const lineGen = d3.line<any>()

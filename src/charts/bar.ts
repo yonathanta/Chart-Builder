@@ -136,9 +136,23 @@ export function renderBarChart(
   const width = Number(svg.attr('width')) || 800;
   const height = Number(svg.attr('height')) || 450;
 
-  const margin = { top: 40, right: 30, bottom: 60, left: 70 };
+  const margin = { top: 60, right: 30, bottom: 60, left: 70 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
+
+  // Render Title
+  if (spec.title) {
+    svg.selectAll('text.chart-title').remove();
+    svg.append('text')
+      .attr('class', 'chart-title')
+      .attr('x', width / 2)
+      .attr('y', 25)
+      .attr('text-anchor', 'middle')
+      .style('font-size', '18px')
+      .style('font-weight', 'bold')
+      .style('fill', '#374151')
+      .text(spec.title);
+  }
 
   const root = svg
     .attr('width', width)

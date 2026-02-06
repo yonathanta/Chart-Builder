@@ -61,6 +61,21 @@ export function renderBubbleChart(
     const g = svg.append("g");
     const center = { x: width / 2, y: height / 2 };
 
+    // Render Title
+    if (spec.title) {
+        svg.selectAll('text.chart-title').remove();
+        svg.append('text')
+            .attr('class', 'chart-title')
+            .attr('x', width / 2)
+            .attr('y', 30) // Position at the top
+            .attr('text-anchor', 'middle')
+            .style('font-size', '18px')
+            .style('font-weight', 'bold')
+            .style('fill', '#374151')
+            .style('font-family', fontFamily)
+            .text(spec.title);
+    }
+
     // 3. Scales
     const maxVal = d3.max(nodes, d => d.value) || 1;
     const minVal = d3.min(nodes, d => d.value) || 0;

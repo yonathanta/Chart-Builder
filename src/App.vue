@@ -7,6 +7,7 @@ import BarBuilderControls from "./components/BarBuilderControls.vue";
 import LineBuilderControls from "./components/LineBuilderControls.vue";
 import AreaBuilderControls from "./components/AreaBuilderControls.vue";
 import PieBuilderControls from "./components/PieBuilderControls.vue";
+import MapBuilderControls from "./components/MapBuilderControls.vue";
 import DataBindingPanel from "./components/DataBindingPanel.vue";
 import PreviewPane from "./components/PreviewPane.vue";
 import { exportService, type ExportFormat } from "./export/exportService";
@@ -14,6 +15,7 @@ import { computed as vueComputed } from "vue";
 import type { LineChartConfig } from "./charts/line";
 import type { AreaChartConfig } from "./charts/areaV7";
 import type { PieConfig } from "./charts/pie";
+import type { MapConfig } from "./charts/map";
 
 const spec = ref<ChartSpec>({
   version: "1.0",
@@ -84,7 +86,24 @@ const pieConfig = ref<PieConfig>({
   showTooltip: true,
 });
 
+const mapConfig = ref<MapConfig>({
+  colorMode: 'gradient',
+  colorScheme: 'interpolateBlues',
+  scale: 400,
+  projectionCenter: [20, 5],
+  animationDuration: 1000,
+  showTooltip: true,
+  backgroundColor: '#ffffff',
+  noDataColor: '#eee',
+  thresholds: [20, 40, 60, 80],
+  useCustomGradient: false,
+  gradientLowColor: '#e0f2fe',
+  gradientHighColor: '#0369a1',
+});
+
 const lineConfig = ref<LineChartConfig>({
+  xKey: '',
+  yKey: '',
   xType: 'time',
   xFormat: '%Y-%m-%d',
   lineColor: '#2563eb',
@@ -104,6 +123,8 @@ const lineConfig = ref<LineChartConfig>({
 });
 
 const areaConfig = ref<AreaChartConfig>({
+  xKey: '',
+  yKey: '',
   xType: 'time',
   xParseFormat: '%Y-%m-%d',
   areaColor: '#2563eb',
@@ -227,6 +248,10 @@ function updateLayout(payload: Partial<ChartSpec["layout"]>) {
   spec.value = { ...spec.value, layout: { ...spec.value.layout, ...payload, preset } };
 }
 
+function updateTitle(title: string) {
+  spec.value = { ...spec.value, title };
+}
+
 function updateStyle(payload: Partial<ChartSpec["style"]>) {
   spec.value = { ...spec.value, style: { ...spec.value.style, ...payload } };
 }
@@ -266,6 +291,10 @@ function updateAreaConfig(next: Record<string, any>) {
 
 function updatePieConfig(next: PieConfig) {
   pieConfig.value = next;
+}
+
+function updateMapConfig(next: MapConfig) {
+  mapConfig.value = next;
 }
 
 function refreshPreview() {
@@ -469,7 +498,14 @@ async function handleExport(format: ExportFormat) {
             <span class="chevron" :class="{ 'chevron--open': panelOpen.options }">›</span>
           </button>
           <div v-if="panelOpen.options" class="panel__body">
-            <ChartOptionsPanel :layout="spec.layout" :style="spec.style" @update:layout="updateLayout" @update:style="updateStyle" />
+            <ChartOptionsPanel 
+              :layout="spec.layout" 
+              :style="spec.style" 
+              :title="spec.title"
+              @update:layout="updateLayout" 
+              @update:style="updateStyle" 
+              @update:title="updateTitle"
+            />
           </div>
         </section>
 
@@ -513,6 +549,16 @@ async function handleExport(format: ExportFormat) {
           </div>
         </section>
 
+        <section v-if="spec.type === 'map'" class="panel panel--foldable">
+          <button class="panel__toggle" type="button" @click="togglePanel('builder')">
+            <span>Builder controls</span>
+            <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
+          </button>
+          <div v-if="panelOpen.builder" class="panel__body">
+            <MapBuilderControls :config="mapConfig" @update:config="updateMapConfig" />
+          </div>
+        </section>
+
       </div>
       <div class="layout__main">
         <PreviewPane
@@ -523,6 +569,7 @@ async function handleExport(format: ExportFormat) {
           :line-config="lineConfig"
           :area-config="areaConfig"
           :pie-config="pieConfig"
+          :map-config="mapConfig"
           :last-validated="lastValidated"
           @update:fields="updateFields"
           @update:encoding="updateEncoding"
