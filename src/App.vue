@@ -150,6 +150,7 @@ const areaConfig = ref<AreaChartConfig>({
 });
 
 const isValid = computed(() => !validationError.value);
+// Removed unused 'isValid' variable from here if it's not used in template
 
 const panelOpen = ref({
   type: false,
@@ -158,7 +159,8 @@ const panelOpen = ref({
   data: false,
 });
 
-const exportFormats: ExportFormat[] = ["svg", "png", "pdf", "html", "spec-json"];
+const exportFormats: ExportFormat[] = ["svg", "png", "pdf", "html", "spec-json", "project-json"];
+const projectInputRef = ref<HTMLInputElement | null>(null);
 
 const shareOpen = ref(false);
 const shareButtonRef = ref<HTMLElement | null>(null);
@@ -205,7 +207,7 @@ function handleDocClick(e: MouseEvent) {
 onMounted(() => document.addEventListener('click', handleDocClick, true));
 onBeforeUnmount(() => document.removeEventListener('click', handleDocClick, true));
 
-const chevron = vueComputed(() => (open: boolean) => open ? "›" : "›");
+// chevron helper removed
 const selectedYears = ref<string[]>([]);
 const dataFields = ref<string[]>([]);
 
@@ -238,14 +240,16 @@ function updateType(type: ChartSpec["type"]) {
 function applyPreset(payload: { type: ChartSpec["type"]; layoutPreset?: "single" | "horizontal" | "vertical" | "grid" | "smallMultiples"; mode?: "grouped" | "stacked" | "percent" | "simple" }) {
   const nextStyle = { ...spec.value.style } as any;
   if (payload.mode) nextStyle.mode = payload.mode;
-  const nextLayout = { ...spec.value.layout, preset: payload.layoutPreset ?? spec.value.layout.preset };
+  const currentLayout = spec.value.layout || { preset: "single" };
+  const nextLayout = { ...currentLayout, preset: payload.layoutPreset ?? currentLayout.preset };
   spec.value = { ...spec.value, type: payload.type, style: nextStyle, layout: nextLayout } as ChartSpec;
   refreshPreview();
 }
 
 function updateLayout(payload: Partial<ChartSpec["layout"]>) {
-  const preset = payload.preset ?? spec.value.layout.preset;
-  spec.value = { ...spec.value, layout: { ...spec.value.layout, ...payload, preset } };
+  const currentLayout = spec.value.layout || { preset: "single" };
+  const preset = payload?.preset ?? currentLayout.preset;
+  spec.value = { ...spec.value, layout: { ...currentLayout, ...payload, preset } };
 }
 
 function updateTitle(title: string) {
@@ -391,12 +395,53 @@ async function handleExport(format: ExportFormat) {
       await downloadBlob(blob, `${baseName}.html`);
     } else if (format === "spec-json") {
       const blob = await exportService.exportSpec(spec.value);
-      await downloadBlob(blob, `${baseName}.json`);
+      await downloadBlob(blob, `${baseName}-spec.json`);
+    } else if (format === "project-json") {
+      const data = previewRef.value?.rows || [];
+      const blob = await exportService.exportProject(spec.value, data);
+      await downloadBlob(blob, `${baseName}-project.json`);
     }
   } catch (err) {
     console.error("Export failed:", err);
     alert(err instanceof Error ? err.message : String(err));
   }
+}
+
+async function handleLoadProject(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const project = JSON.parse(text);
+
+    if (project.version !== "1.0" || !project.spec) {
+      throw new Error("Invalid project file format");
+    }
+
+    // Restore spec
+    spec.value = project.spec;
+
+    // If data is embedded, create a new blob URL and update the source
+    if (project.data && project.data.length > 0) {
+      const textJson = JSON.stringify(project.data);
+      const blobUrl = URL.createObjectURL(new Blob([textJson], { type: "application/json" }));
+      spec.value.data.query.source = blobUrl;
+    }
+
+    refreshPreview();
+    alert("Project loaded successfully");
+  } catch (err) {
+    console.error("Load failed:", err);
+    alert("Failed to load project: " + (err instanceof Error ? err.message : String(err)));
+  } finally {
+    if (input) input.value = '';
+  }
+}
+
+function triggerLoadProject() {
+  projectInputRef.value?.click();
 }
 </script>
 
@@ -409,6 +454,12 @@ async function handleExport(format: ExportFormat) {
         <p class="muted">Choose type of Graph, configure, preview and export.</p>
       </div>
       <div class="page__actions" style="display:flex;gap:8px;align-items:center">
+        <input type="file" ref="projectInputRef" style="display:none" accept="application/json" @change="handleLoadProject" />
+        <button class="btn btn--outline" @click="triggerLoadProject">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right:4px"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16 6l-4-4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 2v13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Load Project
+        </button>
+
         <div style="position:relative">
           <button ref="downloadButtonRef" class="icon-btn" aria-haspopup="true" :aria-expanded="downloadOpen" @click="toggleDownload" title="Export">
             <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 21H3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -418,7 +469,7 @@ async function handleExport(format: ExportFormat) {
               <span class="item-icon"> 
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </span>
-              <span class="item-label">{{ format.toUpperCase() }}</span>
+              <span class="item-label">{{ format === 'project-json' ? 'SAVE PROJECT' : format.toUpperCase() }}</span>
             </button>
           </div>
         </div>

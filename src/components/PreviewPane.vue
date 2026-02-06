@@ -674,6 +674,7 @@ defineExpose({
     return frameRef.value?.querySelector('svg') as SVGSVGElement | null;
   },
   reload: loadAndRender,
+  rows: rows,
 });
 
 onBeforeUnmount(() => {

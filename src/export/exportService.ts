@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import { Canvg } from "canvg";
 import type { ChartSpec } from "../specs/chartSpec";
 
-export type ExportFormat = "svg" | "png" | "pdf" | "html" | "spec-json";
+export type ExportFormat = "svg" | "png" | "pdf" | "html" | "spec-json" | "project-json";
 
 export type ExportOptions = {
   fileName?: string;
@@ -21,6 +21,7 @@ export interface ExportService {
   exportPDF(svg: SVGSVGElement, options?: ExportOptions): Promise<Blob>;
   exportHTML(svg: SVGSVGElement, spec: ChartSpec, options?: ExportOptions): Promise<Blob>;
   exportSpec(spec: ChartSpec, options?: ExportOptions): Promise<Blob>;
+  exportProject(spec: ChartSpec, data?: any[], options?: ExportOptions): Promise<Blob>;
 }
 
 // Utility: serialize SVG to string with optional background rect.
@@ -137,6 +138,17 @@ export const exportService: ExportService = {
 
   async exportSpec(spec) {
     const json = JSON.stringify(spec, null, 2);
+    return new Blob([json], { type: "application/json" });
+  },
+
+  async exportProject(spec, data) {
+    const project = {
+      version: "1.0",
+      timestamp: new Date().toISOString(),
+      spec,
+      data: data || []
+    };
+    const json = JSON.stringify(project, null, 2);
     return new Blob([json], { type: "application/json" });
   },
 };
