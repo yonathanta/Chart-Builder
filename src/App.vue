@@ -156,18 +156,17 @@ function selectDownload(format: ExportFormat) {
 }
 
 function handleDocClick(e: MouseEvent) {
-  if (!shareOpen.value) return;
+  // Only proceed if at least one dropdown is open
+  if (!shareOpen.value && !downloadOpen.value) return;
   const path = (e.composedPath && e.composedPath()) || (e as any).path || [];
   const sBtn = shareButtonRef.value;
   const sDd = shareDropdownRef.value;
   const dBtn = downloadButtonRef.value;
   const dDd = downloadDropdownRef.value;
-  if (sBtn && sDd) {
-    if (path.includes(sBtn) || path.includes(sDd)) return;
-  }
-  if (dBtn && dDd) {
-    if (path.includes(dBtn) || path.includes(dDd)) return;
-  }
+  // If click happened inside either the share button/dropdown or download button/dropdown, ignore
+  if (sBtn && sDd && (path.includes(sBtn) || path.includes(sDd))) return;
+  if (dBtn && dDd && (path.includes(dBtn) || path.includes(dDd))) return;
+  // Otherwise close both
   shareOpen.value = false;
   downloadOpen.value = false;
 }
@@ -276,6 +275,23 @@ function togglePanel(key: 'type' | 'options' | 'builder' | 'data') {
 }
 
 const previewRef = ref<InstanceType<typeof PreviewPane> | null>(null);
+
+async function togglePreviewFullscreen() {
+  try {
+    const comp = previewRef.value as any;
+    const el = comp?.$el ?? document.querySelector('.panel.preview');
+    if (!el) throw new Error('Preview element not found');
+    if (!document.fullscreenElement || document.fullscreenElement !== el) {
+      if (el.requestFullscreen) await el.requestFullscreen();
+      else if ((el as any).webkitRequestFullscreen) await (el as any).webkitRequestFullscreen();
+    } else {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else if ((document as any).webkitExitFullscreen) await (document as any).webkitExitFullscreen();
+    }
+  } catch (err) {
+    console.warn('Fullscreen preview failed', err);
+  }
+}
 
 const embedOpen = ref(false);
 const embedSnippet = ref<string | null>(null);
@@ -397,7 +413,7 @@ async function handleExport(format: ExportFormat) {
         </div>
 
         <div>
-          <button class="icon-btn" title="Fullscreen" @click="(async ()=>{ try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); } catch(e){ console.warn(e); } })()">
+          <button class="icon-btn" title="Fullscreen preview" @click="togglePreviewFullscreen">
             <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 4h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M4 4v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M20 20h-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M20 20v-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           </button>
         </div>
@@ -455,7 +471,7 @@ async function handleExport(format: ExportFormat) {
 
         <section v-if="spec.type === 'line'" class="panel panel--foldable">
           <button class="panel__toggle" type="button" @click="togglePanel('builder')">
-            <span></span>
+            <span>Builder controls</span>
             <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
           </button>
           <div v-if="panelOpen.builder" class="panel__body">
@@ -518,6 +534,18 @@ async function handleExport(format: ExportFormat) {
 }
 .icon-btn:hover { background:#f8fbff }
 .icon { color: #374151 }
+.panel.preview:fullscreen, .panel.preview:-webkit-full-screen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  padding: 12px;
+  background: white;
+}
+.panel.preview:fullscreen .preview__frame, .panel.preview:-webkit-full-screen .preview__frame {
+  height: calc(100% - 72px);
+}
 .dropdown { position:absolute; right:0; margin-top:8px; background:white; border:1px solid #e2e8f0; border-radius:6px; box-shadow:0 8px 24px rgba(2,6,23,0.12); z-index:40; padding:8px; }
 .dropdown-item { display:flex; gap:10px; align-items:center; width:240px; padding:8px; border-radius:6px; background:transparent; border:0; text-align:left; cursor:pointer }
 .dropdown-item:hover { background:#f8fafc }
