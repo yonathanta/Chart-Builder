@@ -552,87 +552,17 @@ function deleteOverlay(id: string) {
 
       <div class="form-field form-field--wide">
         <span>Horizontal axis range</span>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <input type="number" :value="valueMin ?? ''" placeholder="min" @input="valueMin = ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined" />
-          <span>–</span>
-          <input type="number" :value="valueMax ?? ''" placeholder="max" @input="valueMax = ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined" />
+        <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-start; margin-top:6px;">
+          <label style="width:100%"><small class="muted">Min</small>
+            <input type="number" :value="valueMin ?? ''" placeholder="min" @input="valueMin = ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined" style="width:100%; margin-top:6px" />
+          </label>
+          <label style="width:100%"><small class="muted">Max</small>
+            <input type="number" :value="valueMax ?? ''" placeholder="max" @input="valueMax = ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined" style="width:100%; margin-top:6px" />
+          </label>
         </div>
       </div>
     </div>
 
-    <section class="panel" style="margin-top: 12px;">
-      <header class="panel__header">
-        <div>
-          <p class="eyebrow">Overlays</p>
-          <h4 class="panel__title">Add value or range overlays</h4>
-        </div>
-        <button class="pill" type="button" @click="addOverlay">Add overlay</button>
-      </header>
-
-      <div v-if="props.config.overlays.length" class="overlay-list" style="display: flex; flex-direction: column; gap: 10px;">
-        <article v-for="ov in props.config.overlays" :key="ov.id" class="panel" style="padding:12px; border:1px solid #e2e8f0;">
-          <header class="panel__header" style="padding:0; margin-bottom:8px;">
-            <div style="display:flex; align-items:center; gap:8px;">
-              <input type="text" :value="ov.name" @input="updateOverlay(ov.id, { name: ($event.target as HTMLInputElement).value })" />
-              <label class="checkbox">
-                <input type="checkbox" :checked="ov.visible" @change="updateOverlay(ov.id, { visible: ($event.target as HTMLInputElement).checked })" />
-                <span>Visible</span>
-              </label>
-            </div>
-            <button class="pill" type="button" @click="deleteOverlay(ov.id)">Delete</button>
-          </header>
-
-          <div class="form-grid">
-            <div class="form-field">
-              <span>Type</span>
-              <div class="pill-group">
-                <button type="button" class="pill" :class="{ 'pill--active': ov.type === 'value' }" @click="updateOverlay(ov.id, { type: 'value' })">Value</button>
-                <button type="button" class="pill" :class="{ 'pill--active': ov.type === 'range' }" @click="updateOverlay(ov.id, { type: 'range' })">Range</button>
-              </div>
-            </div>
-
-            <label class="form-field">
-              <span>{{ ov.type === 'range' ? 'Column (max)' : 'Column' }}</span>
-              <select v-if="fields.length" :value="ov.column" @change="updateOverlay(ov.id, { column: ($event.target as HTMLSelectElement).value })">
-                <option v-for="f in fields" :key="f" :value="f">{{ f }}</option>
-              </select>
-              <input v-else type="text" :value="ov.column" @input="updateOverlay(ov.id, { column: ($event.target as HTMLInputElement).value })" />
-            </label>
-
-            <label class="form-field" v-if="ov.type === 'range'">
-              <span>Column (min)</span>
-              <select v-if="fields.length" :value="ov.rangeMinColumn" @change="updateOverlay(ov.id, { rangeMinColumn: ($event.target as HTMLSelectElement).value })">
-                <option v-for="f in fields" :key="f" :value="f">{{ f }}</option>
-              </select>
-              <input v-else type="text" :value="ov.rangeMinColumn" @input="updateOverlay(ov.id, { rangeMinColumn: ($event.target as HTMLInputElement).value })" />
-            </label>
-
-            <div class="form-field">
-              <span>Label</span>
-              <div class="pill-group">
-                <button type="button" class="pill" :class="{ 'pill--active': ov.labelMode === 'first' }" @click="updateOverlay(ov.id, { labelMode: 'first' })">On first bar</button>
-                <button type="button" class="pill" :class="{ 'pill--active': ov.labelMode === 'legend' }" @click="updateOverlay(ov.id, { labelMode: 'legend' })">In legend</button>
-                <button type="button" class="pill" :class="{ 'pill--active': ov.labelMode === 'hidden' }" @click="updateOverlay(ov.id, { labelMode: 'hidden' })">Hidden</button>
-              </div>
-              <input type="text" placeholder="Label" :value="ov.labelText ?? ''" @input="updateOverlay(ov.id, { labelText: ($event.target as HTMLInputElement).value })" style="margin-top:6px" />
-            </div>
-
-            <label class="form-field">
-              <span>Color</span>
-              <input type="color" :value="ov.color" @input="updateOverlay(ov.id, { color: ($event.target as HTMLInputElement).value })" />
-            </label>
-
-            <label class="form-field">
-              <span>Opacity (0-100%)</span>
-              <div style="display:flex; gap:8px; align-items:center;">
-                <input type="range" min="0" max="1" step="0.01" :value="ov.opacity" @input="updateOverlay(ov.id, { opacity: Number(($event.target as HTMLInputElement).value) })" />
-                <input type="number" min="0" max="100" step="5" :value="Math.round(ov.opacity * 100)" @input="updateOverlay(ov.id, { opacity: Number(($event.target as HTMLInputElement).value) / 100 })" style="width:80px" />
-              </div>
-            </label>
-          </div>
-        </article>
-      </div>
-      <p class="muted" v-else>No overlays yet.</p>
-    </section>
+    
   </section>
 </template>

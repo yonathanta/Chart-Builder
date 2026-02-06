@@ -120,37 +120,7 @@ async function handleFileUpload(event: Event) {
   }
 }
 
-function triggerDownload(content: BlobPart, filename: string, type: string) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function downloadJsonTemplate() {
-  const template = [
-    { category: "Alpha", value: 120, series: "2024" },
-    { category: "Beta", value: 90, series: "2024" },
-    { category: "Alpha", value: 140, series: "2025" }
-  ];
-  triggerDownload(JSON.stringify(template, null, 2), "chart-template.json", "application/json");
-}
-
-function downloadExcelTemplate() {
-  const header = "category,value,series\n";
-  const rows = [
-    "Alpha,120,2024",
-    "Beta,90,2024",
-    "Alpha,140,2025"
-  ].join("\n");
-  const csv = `${header}${rows}`;
-  triggerDownload(csv, "chart-template.csv", "text/csv");
-}
+// download helpers removed — templates no longer exposed in UI
 
 // Keep the blob URL alive while the preview may still need it.
 // We previously revoked the blob URL on unmount which caused the preview
@@ -196,28 +166,10 @@ function downloadExcelTemplate() {
         <input type="file" accept="application/json,.csv,.tsv,.xls,.xlsx" @change="handleFileUpload" />
       </label>
 
-      <label class="form-field form-field--wide">
-        <span>Params (optional JSON string)</span>
-        <input
-          type="text"
-          :value="local.query.params ? JSON.stringify(local.query.params) : ''"
-          placeholder='{ "year": 2024 }'
-          @input="(e) => {
-            const value = (e.target as HTMLInputElement).value;
-            try {
-              local.query.params = value ? (JSON.parse(value) as Record<string, unknown>) : undefined;
-            } catch (_err) {
-              // ignore parse errors until valid
-            }
-          }"
-        />
-      </label>
+      
     </div>
 
-    <div class="pill-group" style="margin-top: 12px;">
-      <button class="pill" type="button" @click="downloadJsonTemplate">Download JSON template</button>
-      <button class="pill" type="button" @click="downloadExcelTemplate">Download Excel/CSV template</button>
-    </div>
+    
 
     <!-- Map fields UI disabled per request -->
     <!-- <div v-if="schemaFields.keys.length" class="panel" style="margin-top: 16px;">
