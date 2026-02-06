@@ -129,7 +129,7 @@ export function renderBarChart(
 
   // Stacking setup
   const stackGen = d3
-    .stack<{ category: string; [key: string]: number }>()
+    .stack<{ category: string;[key: string]: number }>()
     .keys(seriesKeys);
   if (mode === "percent") {
     stackGen.offset(d3.stackOffsetExpand);

@@ -128,10 +128,10 @@ export function renderBarChart(
      1. BASIC SETUP (persistent layers)
      ============================ */
 
-    // Clear any previous drawing in the preview so the selected chart renders alone
-    try { d3.select(svgEl).selectAll('*').remove(); } catch (e) { /* ignore */ }
+  // Clear any previous drawing in the preview so the selected chart renders alone
+  try { d3.select(svgEl).selectAll('*').remove(); } catch (e) { /* ignore */ }
 
-    const svg = d3.select(svgEl);
+  const svg = d3.select(svgEl);
 
   const width = Number(svg.attr('width')) || 800;
   const height = Number(svg.attr('height')) || 450;
@@ -233,10 +233,10 @@ export function renderBarChart(
   const animation = style.animation ?? true;
   const easingFn = d3.easeBackOut; // specified easing for growth animations
 
-    // Track orientation to avoid animating grid/axes across flips (causes shear).
-    const previousOrientation = (root.attr('data-orientation') as string) || '';
-    const orientationChanged = previousOrientation !== orientation;
-    root.attr('data-orientation', orientation);
+  // Track orientation to avoid animating grid/axes across flips (causes shear).
+  const previousOrientation = (root.attr('data-orientation') as string) || '';
+  const orientationChanged = previousOrientation !== orientation;
+  root.attr('data-orientation', orientation);
 
   const categoryKey = spec.encoding.category.field;
   const valueKey = spec.encoding.value.field;
@@ -435,9 +435,9 @@ export function renderBarChart(
 
   const gradientScale = cfg.useGradientColors
     ? d3.scaleLinear<string>()
-        .domain(valueLinear.domain() as [number, number])
-        .range([cfg.gradientLowColor, cfg.gradientHighColor])
-        .clamp(true)
+      .domain(valueLinear.domain() as [number, number])
+      .range([cfg.gradientLowColor, cfg.gradientHighColor])
+      .clamp(true)
     : null;
 
   const palette = (style.palette as string[] | undefined) || undefined;
@@ -484,25 +484,25 @@ export function renderBarChart(
   const barY = (d: any) =>
     orientation === 'vertical'
       ? ((): number => {
-          const v = Number(d[valueKey]);
-          return Number.isFinite(v) ? valueLinear(v) : valueLinear(0);
-        })()
+        const v = Number(d[valueKey]);
+        return Number.isFinite(v) ? valueLinear(v) : valueLinear(0);
+      })()
       : (categoryBand(d[categoryKey]) ?? 0) + (mode === 'grouped' && seriesKey ? seriesBand(d[seriesKey]) ?? 0 : 0);
 
   const barWidth = (d: any) =>
     orientation === 'vertical'
       ? mode === 'grouped' && seriesKey ? seriesBand.bandwidth() : categoryBand.bandwidth()
       : ((): number => {
-          const v = Number(d[valueKey]);
-          return Number.isFinite(v) ? Math.max(0, valueLinear(v)) : 0;
-        })();
+        const v = Number(d[valueKey]);
+        return Number.isFinite(v) ? Math.max(0, valueLinear(v)) : 0;
+      })();
 
   const barHeight = (d: any) =>
     orientation === 'vertical'
       ? ((): number => {
-          const v = Number(d[valueKey]);
-          return Number.isFinite(v) ? Math.max(0, innerHeight - valueLinear(v)) : 0;
-        })()
+        const v = Number(d[valueKey]);
+        return Number.isFinite(v) ? Math.max(0, innerHeight - valueLinear(v)) : 0;
+      })()
       : mode === 'grouped' && seriesKey ? seriesBand.bandwidth() : categoryBand.bandwidth();
 
   const bars = barsLayer

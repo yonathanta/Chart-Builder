@@ -10,6 +10,7 @@ export const chartTypeValues = [
   "orbitDonut",
   "scatter",
   "map",
+  "pie",
 ] as const;
 
 export type ChartType = (typeof chartTypeValues)[number];

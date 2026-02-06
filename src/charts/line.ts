@@ -423,7 +423,7 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
         const xv = nearest[cfg.xKey] as XYValue;
         const cx = currentXType === 'time' ? (xScale as d3.ScaleTime<number, number>)(nearest.__xDate as Date)
           : currentXType === 'linear' ? (xScale as d3.ScaleLinear<number, number>)(+xv!)
-          : (xScale as d3.ScalePoint<string>)(String(xv)) as number;
+            : (xScale as d3.ScalePoint<string>)(String(xv)) as number;
         const cy = (yScale as d3.ScaleLinear<number, number>)(+nearest[cfg.yKey]);
         // Place tooltip near cursor for better readability
         tooltipEl.style.left = `${margins.left + mx}px`;

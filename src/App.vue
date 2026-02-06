@@ -6,12 +6,14 @@ import ChartOptionsPanel from "./components/ChartOptionsPanel.vue";
 import BarBuilderControls from "./components/BarBuilderControls.vue";
 import LineBuilderControls from "./components/LineBuilderControls.vue";
 import AreaBuilderControls from "./components/AreaBuilderControls.vue";
+import PieBuilderControls from "./components/PieBuilderControls.vue";
 import DataBindingPanel from "./components/DataBindingPanel.vue";
 import PreviewPane from "./components/PreviewPane.vue";
 import { exportService, type ExportFormat } from "./export/exportService";
 import { computed as vueComputed } from "vue";
 import type { LineChartConfig } from "./charts/line";
 import type { AreaChartConfig } from "./charts/areaV7";
+import type { PieConfig } from "./charts/pie";
 
 const spec = ref<ChartSpec>({
   version: "1.0",
@@ -72,6 +74,14 @@ const barConfig = ref({
   reverseOrder: false,
   groupBarsByColumn: false,
   overlays: [],
+});
+
+const pieConfig = ref<PieConfig>({
+  innerRadius: 0,
+  outerRadiusOffset: 15,
+  animationDuration: 800,
+  showLabels: true,
+  showTooltip: true,
 });
 
 const lineConfig = ref<LineChartConfig>({
@@ -252,6 +262,10 @@ function updateLineConfig(next: Record<string, any>) {
 
 function updateAreaConfig(next: Record<string, any>) {
   areaConfig.value = next as AreaChartConfig;
+}
+
+function updatePieConfig(next: PieConfig) {
+  pieConfig.value = next;
 }
 
 function refreshPreview() {
@@ -489,6 +503,16 @@ async function handleExport(format: ExportFormat) {
           </div>
         </section>
 
+        <section v-if="spec.type === 'pie'" class="panel panel--foldable">
+          <button class="panel__toggle" type="button" @click="togglePanel('builder')">
+            <span>Builder controls</span>
+            <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
+          </button>
+          <div v-if="panelOpen.builder" class="panel__body">
+            <PieBuilderControls :config="pieConfig" @update:config="updatePieConfig" />
+          </div>
+        </section>
+
       </div>
       <div class="layout__main">
         <PreviewPane
@@ -498,6 +522,7 @@ async function handleExport(format: ExportFormat) {
           :bar-config="barConfig"
           :line-config="lineConfig"
           :area-config="areaConfig"
+          :pie-config="pieConfig"
           :last-validated="lastValidated"
           @update:fields="updateFields"
           @update:encoding="updateEncoding"

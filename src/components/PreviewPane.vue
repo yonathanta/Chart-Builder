@@ -8,6 +8,7 @@ import { drawAreaChart, type AreaChartConfig, type AreaChartInstance } from "../
 import { renderBubbleChart } from "../charts/bubble";
 import { renderDotDonutChart } from "../charts/dotDonut";
 import { renderOrbitDonutChart } from "../charts/orbitDonut";
+import { renderPieDonutChart, type PieConfig } from "../charts/pie";
 
 const props = defineProps<{
   spec: ChartSpec;
@@ -15,6 +16,7 @@ const props = defineProps<{
   barConfig?: BuilderBarConfig;
   lineConfig?: Partial<LineChartConfig>;
   areaConfig?: Partial<AreaChartConfig>;
+  pieConfig?: PieConfig;
   selectedYears?: string[];
 }>();
 
@@ -258,6 +260,10 @@ async function loadAndRender() {
       svg.style.display = 'block';
       renderOrbitDonutChart(svg, props.spec, filteredRows.value || []);
       status.value = 'Rendered orbit donut chart';
+    } else if (props.spec.type === 'pie') {
+      svg.style.display = 'block';
+      renderPieDonutChart(svg, props.spec, filteredRows.value || [], props.pieConfig);
+      status.value = 'Rendered pie chart';
     } else if (props.spec.type === "line") {
       // Hide the bar SVG and render line into the frame container
       svg.style.display = "none";
@@ -415,6 +421,14 @@ watch(
 
 watch(
   () => props.areaConfig,
+  () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
+watch(
+  () => props.pieConfig,
   () => {
     renderWithCurrentRows();
   },
@@ -629,12 +643,15 @@ function renderWithCurrentRows() {
     } else if (props.spec.type === 'orbitDonut') {
       svgRef.value!.style.display = 'block';
       renderOrbitDonutChart(svgRef.value!, props.spec, filteredRows.value || []);
+    } else if (props.spec.type === 'pie') {
+      svgRef.value!.style.display = 'block';
+      renderPieDonutChart(svgRef.value!, props.spec, filteredRows.value || [], props.pieConfig);
     }
 }
 
 defineExpose({
   getSvgEl: () => {
-    if (props.spec.type === 'bar' || props.spec.type === 'bubble' || props.spec.type === 'dotDonut' || props.spec.type === 'orbitDonut') return svgRef.value;
+    if (props.spec.type === 'bar' || props.spec.type === 'bubble' || props.spec.type === 'dotDonut' || props.spec.type === 'orbitDonut' || props.spec.type === 'pie') return svgRef.value;
     return frameRef.value?.querySelector('svg') as SVGSVGElement | null;
   },
   reload: loadAndRender,

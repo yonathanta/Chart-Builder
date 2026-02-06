@@ -38,7 +38,7 @@ const tiles: Tile[] = [
   { key: "range", label: "Range Plot", type: "unsupported", enabled: false, icon: "M6 9h10v2H6V9zm6 4h4v2h-4v-2z" },
   { key: "arrow", label: "Arrow Plot", type: "unsupported", enabled: false, icon: "M6 14l4-4-1-1 5-5v6h-6l1-1-4 4z" },
   { key: "election-donut", label: "Election Donut", type: "unsupported", enabled: false, icon: "M12 4a8 8 0 100 16 8 8 0 000-16zm0 3a5 5 0 110 10 5 5 0 010-10z" },
-  { key: "pie", label: "Pie Chart", type: "unsupported", enabled: false, icon: "M12 4v8h8A8 8 0 0012 4zM4 12a8 8 0 008 8v-8H4z" },
+  { key: "pie", label: "Pie Chart", type: "pie", enabled: true, icon: "M12 4v8h8A8 8 0 0012 4zM4 12a8 8 0 008 8v-8H4z" },
   { key: "multi-pies", label: "Multiple Pies", type: "unsupported", enabled: false, icon: "M7 7a4 4 0 100 8 4 4 0 000-8zm10-2a4 4 0 100 8 4 4 0 000-8z" },
   { key: "donut", label: "Donut Chart", type: "unsupported", enabled: false, icon: "M12 4a8 8 0 100 16 8 8 0 000-16zm0 5a3 3 0 110 6 3 3 0 010-6z" },
   { key: "orbit-donut", label: "Multiple Pies", type: "orbitDonut", enabled: true, icon: "M7 7a4 4 0 100 8 4 4 0 000-8zm10-2a4 4 0 100 8 4 4 0 000-8z" },
