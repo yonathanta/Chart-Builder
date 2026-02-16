@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch, onBeforeUnmount } from "vue";
+import { reactive, watch } from "vue";
 import * as XLSX from 'xlsx';
 import type { DataBinding } from "../specs/chartSpec";
 
@@ -87,7 +87,7 @@ async function handleFileUpload(event: Event) {
     // derive years
     if (mapping.series) {
       const uniq = Array.from(new Set(uploadedRows.map(r => String(r[mapping.series!]))).values());
-      mapping.years = uniq.slice(0, Math.min(uniq.length, 5));
+      mapping.years = uniq;
       emit("update:years", mapping.years);
     } else {
       mapping.years = [];

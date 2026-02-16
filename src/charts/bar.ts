@@ -326,6 +326,8 @@ export function renderBarChart(
 
     if (mode === 'stacked100') {
       stack.offset(d3.stackOffsetExpand);
+    } else {
+      stack.offset(d3.stackOffsetDiverging);
     }
 
     const grouped = d3.group(data, d => d[categoryKey]);
@@ -337,18 +339,19 @@ export function renderBarChart(
       }))
     );
 
-    const maxValue = mode === 'stacked100' ? 1 : d3.max(stackedData, s => d3.max(s, d => d[1])) || 0;
+    const maxValue = mode === 'stacked100' ? 1 : d3.max(stackedData, (s: any) => d3.max(s, (d: any) => d[1])) || 0;
+    const minValue = mode === 'stacked100' ? 0 : d3.min(stackedData, (s: any) => d3.min(s, (d: any) => d[0])) || 0;
 
-    const domMin = cfg.valueMin ?? 0;
-    const domMax = cfg.valueMax ?? maxValue;
+    const domMin = cfg.valueMin ?? Math.min(0, Number(minValue));
+    const domMax = cfg.valueMax ?? Math.max(0, Number(maxValue));
     valueLinear.domain([domMin, domMax]);
   } else {
     const values = data.map(d => Number(d[valueKey]));
     const computedMax = d3.max(values) ?? 0;
     const computedMin = d3.min(values) ?? 0;
-    // Default domain min should include 0 so bars start at the x-axis (baseline).
+    // Ensure domain includes 0 for bars to grow from baseline
     const domMin = cfg.valueMin ?? Math.min(0, computedMin as number);
-    const domMax = cfg.valueMax ?? computedMax;
+    const domMax = cfg.valueMax ?? Math.max(0, computedMax as number);
     valueLinear.domain([domMin, domMax]);
   }
 
@@ -493,13 +496,20 @@ export function renderBarChart(
   const barX = (d: any) =>
     orientation === 'vertical'
       ? (categoryBand(d[categoryKey]) ?? 0) + (mode === 'grouped' && seriesKey ? seriesBand(d[seriesKey]) ?? 0 : 0)
-      : 0;
+      : ((): number => {
+        const v = Number(d[valueKey]);
+        const baseline = valueLinear(0);
+        const xValue = valueLinear(Number.isFinite(v) ? v : 0);
+        return Math.min(baseline, xValue);
+      })();
 
   const barY = (d: any) =>
     orientation === 'vertical'
       ? ((): number => {
         const v = Number(d[valueKey]);
-        return Number.isFinite(v) ? valueLinear(v) : valueLinear(0);
+        const baseline = valueLinear(0);
+        const yValue = valueLinear(Number.isFinite(v) ? v : 0);
+        return Math.min(baseline, yValue);
       })()
       : (categoryBand(d[categoryKey]) ?? 0) + (mode === 'grouped' && seriesKey ? seriesBand(d[seriesKey]) ?? 0 : 0);
 
@@ -508,14 +518,18 @@ export function renderBarChart(
       ? mode === 'grouped' && seriesKey ? seriesBand.bandwidth() : categoryBand.bandwidth()
       : ((): number => {
         const v = Number(d[valueKey]);
-        return Number.isFinite(v) ? Math.max(0, valueLinear(v)) : 0;
+        const baseline = valueLinear(0);
+        const xValue = valueLinear(Number.isFinite(v) ? v : 0);
+        return Math.abs(xValue - baseline);
       })();
 
   const barHeight = (d: any) =>
     orientation === 'vertical'
       ? ((): number => {
         const v = Number(d[valueKey]);
-        return Number.isFinite(v) ? Math.max(0, innerHeight - valueLinear(v)) : 0;
+        const baseline = valueLinear(0);
+        const yValue = valueLinear(Number.isFinite(v) ? v : 0);
+        return Math.abs(yValue - baseline);
       })()
       : mode === 'grouped' && seriesKey ? seriesBand.bandwidth() : categoryBand.bandwidth();
 
@@ -534,13 +548,13 @@ export function renderBarChart(
           rects
             .attr('x', d => barX(d))
             .attr('width', d => barWidth(d))
-            .attr('y', innerHeight)
+            .attr('y', valueLinear(0))
             .attr('height', 0);
         } else {
           rects
             .attr('y', d => barY(d))
             .attr('height', d => barHeight(d))
-            .attr('x', 0)
+            .attr('x', valueLinear(0))
             .attr('width', 0);
         }
 
@@ -559,8 +573,8 @@ export function renderBarChart(
     .attr('rx', cfg.cornerRadius)
     .attr('stroke', cfg.separatingLines ? '#e2e8f0' : 'none')
     .attr('stroke-width', cfg.separatingLines ? 1 : 0)
-    .attr('x', d => (orientation === 'vertical' ? barX(d) : 0))
-    .attr('y', d => (orientation === 'vertical' ? barY(d) : barY(d)))
+    .attr('x', d => barX(d))
+    .attr('y', d => barY(d))
     .attr('width', d => barWidth(d))
     .attr('height', d => barHeight(d));
 
@@ -581,8 +595,7 @@ export function renderBarChart(
       if (tooltipEl) {
         const val = d[valueKey];
         const seriesVal = seriesKey ? d[seriesKey] : undefined;
-        const tooltipVal = val;
-        const content = `${seriesVal !== undefined ? `<div><strong>${String(seriesVal)}</strong></div>` : ''}<div>Value: ${tooltipVal}</div>`;
+        const content = `${seriesVal !== undefined ? `<div><strong>${String(seriesVal)}</strong></div>` : ''}<div>Value: ${fmt(val)}</div>`;
         const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
         tooltipEl.style.left = `${event.clientX - rect.left}px`;
         tooltipEl.style.top = `${event.clientY - rect.top}px`;
@@ -590,7 +603,7 @@ export function renderBarChart(
         tooltipEl.style.opacity = '1';
       }
     })
-    .on('mousemove', function (event, d) {
+    .on('mousemove', function (event) {
       if (!tooltipEl) return;
       const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
       tooltipEl.style.left = `${event.clientX - rect.left}px`;
@@ -604,7 +617,114 @@ export function renderBarChart(
       if (tooltipEl) tooltipEl.style.opacity = '0';
     });
 
-  // Labels per bar with override text priority.
+  /* ============================
+     STACKED RENDERING
+     ============================ */
+
+  if (mode === 'stacked' || mode === 'stacked100') {
+    const seriesGroups = barsLayer
+      .selectAll<SVGGElement, any>('g.series')
+      .data(stackedData || [], (d: any) => d.key)
+      .join('g')
+      .attr('class', 'series')
+      .attr('fill', (d: any) => {
+        // Find color for the series
+        if (colorScale) return colorScale(String(d.key));
+        return cfg.barColor;
+      });
+
+    const stackBars = seriesGroups
+      .selectAll<SVGRectElement, any>('rect.bar')
+      .data((d: any) => d.map((p: any) => ({ ...p, key: d.key })), (d: any) => d.data.category)
+      .join(
+        enter => enter.append('rect')
+          .attr('class', 'bar')
+          .attr('rx', cfg.cornerRadius)
+          .attr('x', (d: any) => orientation === 'vertical' ? (categoryBand(d.data.category) ?? 0) : valueLinear(0))
+          .attr('y', (d: any) => orientation === 'vertical' ? valueLinear(0) : (categoryBand(d.data.category) ?? 0))
+          .attr('width', (d: any) => orientation === 'vertical' ? categoryBand.bandwidth() : 0)
+          .attr('height', (d: any) => orientation === 'vertical' ? 0 : categoryBand.bandwidth()),
+        update => update,
+        exit => exit.remove()
+      );
+
+    stackBars
+      .transition(transitionBase)
+      .delay((_, i) => i * cfg.staggerDelay)
+      .attr('x', (d: any) => orientation === 'vertical' ? (categoryBand(d.data.category) ?? 0) : Math.min(valueLinear(d[0]), valueLinear(d[1])))
+      .attr('y', (d: any) => orientation === 'vertical' ? Math.min(valueLinear(d[0]), valueLinear(d[1])) : (categoryBand(d.data.category) ?? 0))
+      .attr('width', (d: any) => orientation === 'vertical' ? categoryBand.bandwidth() : Math.abs(valueLinear(d[1]) - valueLinear(d[0])))
+      .attr('height', (d: any) => orientation === 'vertical' ? Math.abs(valueLinear(d[1]) - valueLinear(d[0])) : categoryBand.bandwidth())
+      .attr('fill', (d: any) => {
+        const id = `${d.data.category}-${d.key}`;
+        return overrides?.[id]?.color || null; // Return null if no override to avoid lint error
+      });
+
+    // Add interactions to stacked bars
+    stackBars
+      .on('mouseover', function (event, d) {
+        const base = d3.select(this.parentNode as any).attr('fill');
+        d3.select(this)
+          .transition()
+          .duration(cfg.animationDuration / 2)
+          .attr('fill', colorDarken(base as string));
+
+        if (tooltipEl) {
+          const val = d[1] - d[0];
+          const content = `<div><strong>${d.key}</strong></div><div>Category: ${d.data.category}</div><div>Value: ${fmt(val)}</div>`;
+          const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
+          tooltipEl.style.left = `${event.clientX - rect.left}px`;
+          tooltipEl.style.top = `${event.clientY - rect.top}px`;
+          tooltipEl.innerHTML = content;
+          tooltipEl.style.opacity = '1';
+        }
+      })
+      .on('mousemove', function (event) {
+        if (!tooltipEl) return;
+        const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
+        tooltipEl.style.left = `${event.clientX - rect.left}px`;
+        tooltipEl.style.top = `${event.clientY - rect.top}px`;
+      })
+      .on('mouseout', function () {
+        d3.select(this)
+          .transition()
+          .duration(cfg.animationDuration / 2)
+          .attr('fill', null);
+        if (tooltipEl) tooltipEl.style.opacity = '0';
+      });
+
+    // Add labels for stacked bars
+    if (cfg.showValues) {
+      seriesGroups.selectAll<SVGTextElement, any>('text.stack-label')
+        .data(d => (d as any).map((p: any) => ({ ...p, key: (d as any).key })), (d: any) => d.data.category)
+        .join('text')
+        .attr('class', 'stack-label')
+        .attr('fill', '#fff')
+        .style('font-size', '10px')
+        .attr('text-anchor', 'middle')
+        .style('pointer-events', 'none')
+        .transition(transitionBase)
+        .delay((_, i) => i * cfg.staggerDelay)
+        .attr('x', d => {
+          if (orientation === 'vertical') return (categoryBand(d.data.category) ?? 0) + categoryBand.bandwidth() / 2;
+          return valueLinear((d[0] + d[1]) / 2);
+        })
+        .attr('y', d => {
+          if (orientation === 'vertical') return valueLinear((d[0] + d[1]) / 2) + 4;
+          return (categoryBand(d.data.category) ?? 0) + categoryBand.bandwidth() / 2 + 4;
+        })
+        .text(d => {
+          const val = d[1] - d[0];
+          return Math.abs(val) > 0.05 ? fmt(val) : '';
+        });
+    } else {
+      seriesGroups.selectAll('text.stack-label').remove();
+    }
+  } else {
+    barsLayer.selectAll('g.series').remove();
+  }
+
+  // Labels per bar with override text priority (Simple/Grouped).
   const labels = labelsLayer
     .selectAll<SVGTextElement, any>('text.bar-label')
     .data(cfg.showValues && (mode === 'simple' || mode === 'grouped') ? data : [], keyFn)
@@ -625,18 +745,34 @@ export function renderBarChart(
       return overrides?.[barId(d)]?.label ?? text;
     })
     .attr('x', d => {
+      const v = Number(d[valueKey]);
       if (orientation === 'vertical') {
         return (barX(d) as number) + (barWidth(d) as number) / 2;
       }
-      return cfg.valueAlignment === 'left' ? Math.max((barWidth(d) as number) - 6, 0) : (barWidth(d) as number) + 6;
+      const tipX = v >= 0 ? (barX(d) as number) + (barWidth(d) as number) : (barX(d) as number);
+      const offset = v >= 0 ? 6 : -6;
+      return cfg.valueAlignment === 'left' ? tipX - offset : tipX + offset;
     })
     .attr('y', d => {
+      const v = Number(d[valueKey]);
       if (orientation === 'vertical') {
-        return (barY(d) as number) - 6;
+        const tipY = v >= 0 ? (barY(d) as number) : (barY(d) as number) + (barHeight(d) as number);
+        return v >= 0 ? tipY - 6 : tipY + 6;
       }
       return (categoryBand(d[categoryKey]) ?? 0) + (mode === 'grouped' && seriesKey ? (seriesBand(d[seriesKey]) ?? 0) + seriesBand.bandwidth() / 2 : categoryBand.bandwidth() / 2);
     })
-    .attr('text-anchor', orientation === 'vertical' ? 'middle' : (cfg.valueAlignment === 'left' ? 'end' : 'start'))
+    .attr('text-anchor', d => {
+      if (orientation === 'vertical') return 'middle';
+      const v = Number(d[valueKey]);
+      if (v >= 0) return cfg.valueAlignment === 'left' ? 'end' : 'start';
+      // For negative bars, if we want it "equally" outside:
+      return cfg.valueAlignment === 'left' ? 'start' : 'end';
+    })
+    .attr('dominant-baseline', d => {
+      if (orientation === 'horizontal') return 'central';
+      const v = Number(d[valueKey]);
+      return v >= 0 ? 'alphabetic' : 'hanging';
+    })
     .style('font-size', '12px')
     .style('opacity', 0.9);
 
@@ -646,7 +782,7 @@ export function renderBarChart(
 
   const activeOverlays = (cfg.overlays || []).filter(o => o.visible);
 
-  activeOverlays.forEach((ov, ovIdx) => {
+  activeOverlays.forEach((ov) => {
     const overlayGroup = overlaysLayer
       .selectAll<SVGGElement, any>(`g.overlay-${ov.id}`)
       .data([ov])
@@ -678,6 +814,7 @@ export function renderBarChart(
       : (mode === 'grouped' && seriesKey ? seriesBand.bandwidth() : categoryBand.bandwidth())) * 0.6;
 
     overlayBars
+      .transition(transitionBase)
       .attr('fill', ov.color)
       .attr('opacity', ov.opacity)
       .attr('rx', Math.min(cfg.cornerRadius, 6))
@@ -706,7 +843,7 @@ export function renderBarChart(
             const maxV = Math.max(d.__ovMin, d.__ovMax);
             return Math.max(0, valueLinear(minV) - valueLinear(maxV));
           }
-          return innerHeight - valueLinear(d.__ovMax);
+          return Math.abs(innerHeight - valueLinear(d.__ovMax));
         }
         return bandwidth;
       });
@@ -735,14 +872,6 @@ export function renderBarChart(
     }
   });
 
-  // Accessibility per bar.
-  bars.attr('aria-label', d => {
-    const custom = overrides?.[barId(d)]?.label;
-    const value = d[valueKey];
-    const cat = d[categoryKey];
-    return custom ? `${cat}: ${value} (${custom})` : `${cat}: ${value}`;
-  });
-
   const xLabelRotation = cfg.xLabelRotation ?? 0;
   const xLabelAnchor = xLabelRotation === 0 ? 'middle' : xLabelRotation > 0 ? 'start' : 'end';
 
@@ -756,10 +885,6 @@ export function renderBarChart(
     .selectAll<SVGTextElement, unknown>('text')
     .attr('dy', `${cfg.yLabelOffset}px`);
 
-  /* ============================
-     SMALL MULTIPLES FACETING
-     ============================ */
-
   function renderSmallMultiples() {
     const facetKeys = series;
     const facetGap = 16;
@@ -768,26 +893,28 @@ export function renderBarChart(
 
     const facets = root
       .selectAll<SVGGElement, string>('g.facet')
-      .data(facetKeys, d => d)
+      .data(facetKeys, (d: any) => d)
       .join('g')
       .attr('class', 'facet')
-      .attr('transform', (_d, i) => `translate(0, ${i * (facetHeight + facetGap)})`);
+      .attr('transform', (_d: any, i: number) => `translate(0, ${i * (facetHeight + facetGap)})`);
 
-    facets.each((facetKey, i, nodes) => {
+    facets.each(function (facetKey: any, i, nodes) {
       const facetData = data.filter(d => d[seriesKey as string] === facetKey);
       const gFacet = d3.select(nodes[i]);
 
       const xBandFacet = d3
         .scaleBand<string>()
-        .domain(categories)
+        .domain(categories as any)
         .range([0, innerWidth])
         .paddingInner(cfg.barPadding)
         .paddingOuter(cfg.barPadding / 2);
 
+      const fMin = d3.min(facetData, (d: any) => Number(d[valueKey])) ?? 0;
+      const fMax = d3.max(facetData, (d: any) => Number(d[valueKey])) ?? 0;
       const yFacet = d3
         .scaleLinear()
         .range([facetHeight, 0])
-        .domain([0, d3.max(facetData, d => d[valueKey]) || 0]);
+        .domain([Math.min(0, fMin), Math.max(0, fMax)]);
 
       const xAxisFacet = d3.axisBottom(xBandFacet);
       const yAxisFacet = d3.axisLeft(yFacet).ticks(4);
@@ -834,17 +961,17 @@ export function renderBarChart(
 
       const bars = gFacet
         .selectAll<SVGRectElement, any>('rect.bar')
-        .data(facetData, d => `${d[categoryKey]}`)
+        .data(facetData, (d: any) => `${d[categoryKey]}`)
         .join(
           enter => enter
             .append('rect')
             .attr('class', 'bar')
-            .attr('data-id', d => `${d[categoryKey]}-${facetKey}`)
-            .attr('fill', d => resolveColor(d))
+            .attr('data-id', (d: any) => `${d[categoryKey]}-${facetKey}`)
+            .attr('fill', (d: any) => resolveColor(d))
             .attr('rx', cfg.cornerRadius)
-            .attr('x', d => xBandFacet(d[categoryKey]) ?? 0)
+            .attr('x', (d: any) => xBandFacet(d[categoryKey]) ?? 0)
             .attr('width', xBandFacet.bandwidth())
-            .attr('y', facetHeight)
+            .attr('y', yFacet(0))
             .attr('height', 0),
           update => update,
           exit => exit.transition().duration(cfg.animationDuration).style('opacity', 0).remove()
@@ -854,16 +981,16 @@ export function renderBarChart(
         .transition()
         .duration(animation ? cfg.animationDuration : 0)
         .delay((_, idx) => idx * cfg.staggerDelay)
-        .attr('fill', d => resolveColor(d))
+        .attr('fill', (d: any) => resolveColor(d))
         .attr('rx', cfg.cornerRadius)
-        .attr('x', d => xBandFacet(d[categoryKey]) ?? 0)
+        .attr('x', (d: any) => xBandFacet(d[categoryKey]) ?? 0)
         .attr('width', xBandFacet.bandwidth())
-        .attr('y', d => yFacet(d[valueKey]))
-        .attr('height', d => facetHeight - yFacet(d[valueKey]));
+        .attr('y', (d: any) => Math.min(yFacet(0), yFacet(d[valueKey])))
+        .attr('height', (d: any) => Math.abs(yFacet(d[valueKey]) - yFacet(0)));
 
       const labels = gFacet
         .selectAll<SVGTextElement, any>('text.bar-label')
-        .data(cfg.showValues ? facetData : [], d => `${d[categoryKey]}`)
+        .data(cfg.showValues ? facetData : [], (d: any) => `${d[categoryKey]}`)
         .join(
           enter => enter.append('text').attr('class', 'bar-label').attr('fill', '#0f172a'),
           update => update,
@@ -874,10 +1001,22 @@ export function renderBarChart(
         .transition()
         .duration(animation ? cfg.animationDuration : 0)
         .delay((_, idx) => idx * cfg.staggerDelay)
-        .text(d => overrides?.[`${d[categoryKey]}-${facetKey}`]?.label ?? `${d[valueKey]}`)
-        .attr('x', d => (xBandFacet(d[categoryKey]) ?? 0) + xBandFacet.bandwidth() / 2)
-        .attr('y', d => yFacet(d[valueKey]) - 6)
+        .text((d: any) => {
+          const v = Number(d[valueKey]);
+          const text = Number.isFinite(v) ? fmt(v) : String(d[valueKey] ?? '');
+          return overrides?.[`${d[categoryKey]}-${facetKey}`]?.label ?? text;
+        })
+        .attr('x', (d: any) => (xBandFacet(d[categoryKey]) ?? 0) + xBandFacet.bandwidth() / 2)
+        .attr('y', (d: any) => {
+          const v = Number(d[valueKey]);
+          const tipY = v >= 0 ? yFacet(v) : yFacet(v);
+          return v >= 0 ? tipY - 6 : tipY + 6;
+        })
         .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', (d: any) => {
+          const v = Number(d[valueKey]);
+          return v >= 0 ? 'alphabetic' : 'hanging';
+        })
         .style('font-size', '11px')
         .style('opacity', 0.9);
 
@@ -891,7 +1030,7 @@ export function renderBarChart(
         .selectAll<SVGTextElement, unknown>('text')
         .attr('dy', `${cfg.yLabelOffset}px`);
 
-      bars.attr('aria-label', d => {
+      bars.attr('aria-label', (d: any) => {
         const custom = overrides?.[`${d[categoryKey]}-${facetKey}`]?.label;
         const value = d[valueKey];
         const cat = d[categoryKey];
