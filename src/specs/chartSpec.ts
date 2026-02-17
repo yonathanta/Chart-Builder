@@ -11,6 +11,7 @@ export const chartTypeValues = [
   "scatter",
   "map",
   "pie",
+  "stackedBar",
 ] as const;
 
 export type ChartType = (typeof chartTypeValues)[number];
@@ -45,6 +46,9 @@ export const encodingSchema = z.object({
       .enum(["none", "sum", "avg", "median", "count"])
       .default("none"),
   }),
+  x: fieldRefSchema.optional(),
+  y: fieldRefSchema.optional(),
+  size: fieldRefSchema.optional(),
   series: fieldRefSchema.optional(),
   color: fieldRefSchema.optional(),
   tooltipFields: z.array(fieldRefSchema).optional(),

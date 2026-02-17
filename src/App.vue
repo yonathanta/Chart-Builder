@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { chartSpecSchema, type ChartSpec } from "./specs/chartSpec";
 import ChartTypeSelector from "./components/ChartTypeSelector.vue";
 import ChartOptionsPanel from "./components/ChartOptionsPanel.vue";
@@ -9,13 +9,14 @@ import AreaBuilderControls from "./components/AreaBuilderControls.vue";
 import PieBuilderControls from "./components/PieBuilderControls.vue";
 import MapBuilderControls from "./components/MapBuilderControls.vue";
 import DataBindingPanel from "./components/DataBindingPanel.vue";
+import ScatterBuilderControls, { type ScatterBuilderConfig } from "./components/ScatterBuilderControls.vue";
 import PreviewPane from "./components/PreviewPane.vue";
 import { exportService, type ExportFormat } from "./export/exportService";
-import { computed as vueComputed } from "vue";
 import type { LineChartConfig } from "./charts/line";
 import type { AreaChartConfig } from "./charts/areaV7";
 import type { PieConfig } from "./charts/pie";
 import type { MapConfig } from "./charts/map";
+import type { BarBuilderConfig } from "./components/BarBuilderControls.vue";
 
 const spec = ref<ChartSpec>({
   version: "1.0",
@@ -40,7 +41,7 @@ const spec = ref<ChartSpec>({
 const lastValidated = ref<string | undefined>();
 const validationError = ref<string | undefined>();
 
-const barConfig = ref({
+const barConfig = ref<BarBuilderConfig>({
   cornerRadius: 4,
   barPadding: 0.2,
   barColor: "#4F81BD",
@@ -53,7 +54,6 @@ const barConfig = ref({
   yLabelOffset: 0,
   labelAlignment: 'left',
   separateLabelLine: false,
-  valueAlignment: 'right',
   numberFormat: ',.2~f',
   swapLabelsAndValues: false,
   replaceCodesWithFlags: false,
@@ -75,6 +75,12 @@ const barConfig = ref({
   sortBars: false,
   reverseOrder: false,
   groupBarsByColumn: false,
+  labelPosition: 'top',
+  labelRotate: 0,
+  labelDistance: 5,
+  labelFontSize: 12,
+  labelFontWeight: 'normal',
+  labelFontColor: '#333333',
   overlays: [],
 });
 
@@ -149,8 +155,13 @@ const areaConfig = ref<AreaChartConfig>({
   duration: 800,
 });
 
-const isValid = computed(() => !validationError.value);
-// Removed unused 'isValid' variable from here if it's not used in template
+const scatterConfig = ref<ScatterBuilderConfig>({
+  animationDuration: 1000,
+  pointRadius: 6,
+  showGridlines: true,
+  showLegend: true,
+  showTooltip: true,
+});
 
 const panelOpen = ref({
   type: false,
@@ -231,6 +242,17 @@ function updateType(type: ChartSpec["type"]) {
     spec.value = { ...spec.value, type, layout: { ...spec.value.layout, preset: 'grid' } };
   } else if (type === 'dotDonut') {
     spec.value = { ...spec.value, type, layout: { ...spec.value.layout, preset: 'grid' } };
+  } else if (type === 'scatter') {
+    spec.value = { 
+      ...spec.value, 
+      type, 
+      data: { ...spec.value.data, query: { source: "/data/sample-scatter.json" } },
+      encoding: { 
+        category: { field: "gdpPerCapita", label: "GDP Per Capita" }, 
+        value: { field: "lifeExpectancy", label: "Life Expectancy", aggregate: "none" },
+        series: { field: "region" }
+      } 
+    };
   } else {
     spec.value = { ...spec.value, type };
   }
@@ -291,6 +313,10 @@ function updateLineConfig(next: Record<string, any>) {
 
 function updateAreaConfig(next: Record<string, any>) {
   areaConfig.value = next as AreaChartConfig;
+}
+
+function updateScatterConfig(next: ScatterBuilderConfig) {
+  scatterConfig.value = next;
 }
 
 function updatePieConfig(next: PieConfig) {
@@ -560,7 +586,7 @@ function triggerLoadProject() {
           </div>
         </section>
 
-        <section v-if="spec.type === 'bar'" class="panel panel--foldable">
+        <section v-if="spec.type === 'bar' || spec.type === 'stackedBar'" class="panel panel--foldable">
           <button class="panel__toggle" type="button" @click="togglePanel('builder')">
             <span>Builder controls</span>
             <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
@@ -600,6 +626,16 @@ function triggerLoadProject() {
           </div>
         </section>
 
+        <section v-if="spec.type === 'scatter'" class="panel panel--foldable">
+          <button class="panel__toggle" type="button" @click="togglePanel('builder')">
+            <span>Builder controls</span>
+            <span class="chevron" :class="{ 'chevron--open': panelOpen.builder }">›</span>
+          </button>
+          <div v-if="panelOpen.builder" class="panel__body">
+            <ScatterBuilderControls :config="scatterConfig" :fields="dataFields" @update:config="updateScatterConfig" />
+          </div>
+        </section>
+
         <section v-if="spec.type === 'map'" class="panel panel--foldable">
           <button class="panel__toggle" type="button" @click="togglePanel('builder')">
             <span>Builder controls</span>
@@ -621,6 +657,7 @@ function triggerLoadProject() {
           :area-config="areaConfig"
           :pie-config="pieConfig"
           :map-config="mapConfig"
+          :scatter-config="scatterConfig"
           :last-validated="lastValidated"
           @update:fields="updateFields"
           @update:encoding="updateEncoding"

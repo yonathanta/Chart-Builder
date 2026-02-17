@@ -38,6 +38,12 @@ export type BuilderBarConfig = {
   sortBars?: boolean;
   reverseOrder?: boolean;
   groupBarsByColumn?: boolean;
+  labelPosition?: 'left' | 'right' | 'top' | 'bottom' | 'inside';
+  labelRotate?: number;
+  labelDistance?: number;
+  labelFontSize?: number;
+  labelFontWeight?: 'normal' | 'bold';
+  labelFontColor?: string;
   overlays?: BarOverlay[];
 };
 
@@ -121,6 +127,12 @@ export function renderBarChart(
     sortBars: config.sortBars ?? false,
     reverseOrder: config.reverseOrder ?? false,
     groupBarsByColumn: config.groupBarsByColumn ?? false,
+    labelPosition: config.labelPosition ?? 'top',
+    labelRotate: config.labelRotate ?? 0,
+    labelDistance: config.labelDistance ?? 5,
+    labelFontSize: config.labelFontSize ?? 12,
+    labelFontWeight: config.labelFontWeight ?? 'normal',
+    labelFontColor: config.labelFontColor ?? '#333333',
     overlays: config.overlays ?? [],
   };
 
@@ -140,19 +152,6 @@ export function renderBarChart(
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
 
-  // Render Title
-  if (spec.title) {
-    svg.selectAll('text.chart-title').remove();
-    svg.append('text')
-      .attr('class', 'chart-title')
-      .attr('x', width / 2)
-      .attr('y', 25)
-      .attr('text-anchor', 'middle')
-      .style('font-size', '18px')
-      .style('font-weight', 'bold')
-      .style('fill', '#374151')
-      .text(spec.title);
-  }
 
   const root = svg
     .attr('width', width)
@@ -670,8 +669,8 @@ export function renderBarChart(
           .attr('fill', colorDarken(base as string));
 
         if (tooltipEl) {
-          const val = d[1] - d[0];
-          const content = `<div><strong>${d.key}</strong></div><div>Category: ${d.data.category}</div><div>Value: ${fmt(val)}</div>`;
+          const val = (d as any)[1] - (d as any)[0];
+          const content = `<div><strong>${(d as any).key}</strong></div><div>Category: ${(d as any).data.category}</div><div>Value: ${fmt(val)}</div>`;
           const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
           tooltipEl.style.left = `${event.clientX - rect.left}px`;
           tooltipEl.style.top = `${event.clientY - rect.top}px`;
@@ -699,8 +698,9 @@ export function renderBarChart(
         .data(d => (d as any).map((p: any) => ({ ...p, key: (d as any).key })), (d: any) => d.data.category)
         .join('text')
         .attr('class', 'stack-label')
-        .attr('fill', '#fff')
-        .style('font-size', '10px')
+        .attr('fill', cfg.labelFontColor)
+        .style('font-size', `${cfg.labelFontSize}px`)
+        .style('font-weight', cfg.labelFontWeight)
         .attr('text-anchor', 'middle')
         .style('pointer-events', 'none')
         .transition(transitionBase)
@@ -710,11 +710,16 @@ export function renderBarChart(
           return valueLinear((d[0] + d[1]) / 2);
         })
         .attr('y', d => {
-          if (orientation === 'vertical') return valueLinear((d[0] + d[1]) / 2) + 4;
-          return (categoryBand(d.data.category) ?? 0) + categoryBand.bandwidth() / 2 + 4;
+          if (orientation === 'vertical') return valueLinear((d[0] + d[1]) / 2) + cfg.labelFontSize / 3;
+          return (categoryBand(d.data.category) ?? 0) + categoryBand.bandwidth() / 2 + cfg.labelFontSize / 3;
+        })
+        .attr('transform', d => {
+          const cx = orientation === 'vertical' ? (categoryBand(d.data.category) ?? 0) + categoryBand.bandwidth() / 2 : valueLinear((d[0] + d[1]) / 2);
+          const cy = orientation === 'vertical' ? valueLinear((d[0] + d[1]) / 2) : (categoryBand(d.data.category) ?? 0) + categoryBand.bandwidth() / 2;
+          return cfg.labelRotate ? `rotate(${cfg.labelRotate}, ${cx}, ${cy})` : null;
         })
         .text(d => {
-          const val = d[1] - d[0];
+          const val = (d as any)[1] - (d as any)[0];
           return Math.abs(val) > 0.05 ? fmt(val) : '';
         });
     } else {
@@ -746,35 +751,101 @@ export function renderBarChart(
     })
     .attr('x', d => {
       const v = Number(d[valueKey]);
-      if (orientation === 'vertical') {
-        return (barX(d) as number) + (barWidth(d) as number) / 2;
+      const bw = barWidth(d) as number;
+      const bx = barX(d) as number;
+      const dist = cfg.labelDistance;
+
+      if (cfg.labelPosition === 'inside') {
+        return bx + bw / 2;
       }
-      const tipX = v >= 0 ? (barX(d) as number) + (barWidth(d) as number) : (barX(d) as number);
-      const offset = v >= 0 ? 6 : -6;
-      return cfg.valueAlignment === 'left' ? tipX - offset : tipX + offset;
+
+      if (orientation === 'vertical') {
+        const cx = bx + bw / 2;
+        if (cfg.labelPosition === 'left') return bx - dist;
+        if (cfg.labelPosition === 'right') return bx + bw + dist;
+        return cx;
+      } else {
+        // Horizontal
+        const tipX = v >= 0 ? bx + bw : bx;
+        if (cfg.labelPosition === 'top') return tipX + (v >= 0 ? dist : -dist);
+        if (cfg.labelPosition === 'bottom') return valueLinear(0) + (v >= 0 ? -dist : dist);
+        if (cfg.labelPosition === 'right') return (v >= 0 ? bx + bw : valueLinear(0)) + dist;
+        if (cfg.labelPosition === 'left') return (v >= 0 ? valueLinear(0) : bx) - dist;
+        // Default (relative to tip)
+        const offset = v >= 0 ? dist : -dist;
+        return tipX + offset;
+      }
     })
     .attr('y', d => {
       const v = Number(d[valueKey]);
-      if (orientation === 'vertical') {
-        const tipY = v >= 0 ? (barY(d) as number) : (barY(d) as number) + (barHeight(d) as number);
-        return v >= 0 ? tipY - 6 : tipY + 6;
+      const bh = barHeight(d) as number;
+      const by = barY(d) as number;
+      const dist = cfg.labelDistance;
+
+      if (cfg.labelPosition === 'inside') {
+        return by + bh / 2 + cfg.labelFontSize / 3;
       }
-      return (categoryBand(d[categoryKey]) ?? 0) + (mode === 'grouped' && seriesKey ? (seriesBand(d[seriesKey]) ?? 0) + seriesBand.bandwidth() / 2 : categoryBand.bandwidth() / 2);
+
+      if (orientation === 'vertical') {
+        const tipY = v >= 0 ? by : by + bh;
+        const centerY = by + bh / 2;
+        if (cfg.labelPosition === 'left' || cfg.labelPosition === 'right') return centerY + cfg.labelFontSize / 3;
+        if (cfg.labelPosition === 'top') return v >= 0 ? by - dist : by + bh + dist + cfg.labelFontSize * 0.8;
+        if (cfg.labelPosition === 'bottom') return v >= 0 ? valueLinear(0) + dist + cfg.labelFontSize * 0.8 : valueLinear(0) - dist;
+        // Default (relative to tip)
+        const offset = v >= 0 ? dist : -(dist + cfg.labelFontSize * 0.8);
+        return tipY - offset;
+      } else {
+        // Horizontal
+        const cy = (categoryBand(d[categoryKey]) ?? 0) + (mode === 'grouped' && seriesKey ? (seriesBand(d[seriesKey]) ?? 0) + seriesBand.bandwidth() / 2 : categoryBand.bandwidth() / 2);
+        return cy + cfg.labelFontSize / 3;
+      }
     })
     .attr('text-anchor', d => {
-      if (orientation === 'vertical') return 'middle';
-      const v = Number(d[valueKey]);
-      if (v >= 0) return cfg.valueAlignment === 'left' ? 'end' : 'start';
-      // For negative bars, if we want it "equally" outside:
-      return cfg.valueAlignment === 'left' ? 'start' : 'end';
+      if (cfg.labelPosition === 'inside') return 'middle';
+      if (orientation === 'vertical') {
+        if (cfg.labelPosition === 'left') return 'end';
+        if (cfg.labelPosition === 'right') return 'start';
+        return 'middle';
+      } else {
+        const v = Number(d[valueKey]);
+        if (cfg.labelPosition === 'top') return v >= 0 ? 'start' : 'end';
+        if (cfg.labelPosition === 'bottom') return v >= 0 ? 'end' : 'start';
+        if (v >= 0) {
+          if (cfg.labelPosition === 'left') return 'end';
+          return 'start';
+        } else {
+          if (cfg.labelPosition === 'right') return 'start';
+          return 'end';
+        }
+      }
     })
-    .attr('dominant-baseline', d => {
-      if (orientation === 'horizontal') return 'central';
-      const v = Number(d[valueKey]);
-      return v >= 0 ? 'alphabetic' : 'hanging';
+    .attr('transform', d => {
+      const bw = barWidth(d) as number;
+      const bh = barHeight(d) as number;
+      const bx = barX(d) as number;
+      const by = barY(d) as number;
+      let cx = 0;
+      let cy = 0;
+
+      // Calculate anchor point for rotation correctly
+      if (cfg.labelPosition === 'inside') {
+        cx = bx + bw / 2;
+        cy = by + bh / 2;
+      } else if (orientation === 'vertical') {
+        cx = bx + bw / 2;
+        cy = Number(d[valueKey]) >= 0 ? by : by + bh;
+      } else {
+        cx = Number(d[valueKey]) >= 0 ? bx + bw : bx;
+        cy = (categoryBand(d[categoryKey]) ?? 0) + (mode === 'grouped' && seriesKey ? (seriesBand(d[seriesKey]) ?? 0) + seriesBand.bandwidth() / 2 : categoryBand.bandwidth() / 2);
+      }
+
+      return cfg.labelRotate ? `rotate(${cfg.labelRotate}, ${cx}, ${cy})` : null;
     })
-    .style('font-size', '12px')
-    .style('opacity', 0.9);
+    .attr('fill', cfg.labelFontColor)
+    .style('font-size', `${cfg.labelFontSize}px`)
+    .style('font-weight', cfg.labelFontWeight)
+    .style('opacity', 1);
 
   /* ============================
      OVERLAYS (value/range)

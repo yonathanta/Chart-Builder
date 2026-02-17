@@ -74,7 +74,7 @@ export function renderBarChart(
   };
   const easeFn = easingMap[animation?.easing ?? "ease-out"] ?? d3.easeCubicOut;
 
-  const margin = { ...DEFAULT_MARGIN, ...(spec.layout?.margin ?? {}) };
+  const margin = { ...DEFAULT_MARGIN, ...(spec.layout?.padding ?? {}) };
   const width = spec.layout?.width ?? DEFAULT_WIDTH;
   const height = spec.layout?.height ?? DEFAULT_HEIGHT;
   const innerWidth = width - margin.left - margin.right;

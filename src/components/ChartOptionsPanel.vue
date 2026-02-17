@@ -22,6 +22,17 @@ const layoutPresets: Layout["preset"][] = [
   "circular",
 ];
 
+const backgroundPresets = [
+  "#ffffff",
+  "#f8fafc",
+  "#f1f5f9",
+  "#f9fafb",
+  "#f3f4f6",
+  "#fffbeb",
+  "#0f172a",
+  "#111827",
+];
+
 function updateLayout(key: keyof Layout, value: unknown) {
   emit("update:layout", { [key]: value } as Partial<Layout>);
 }
@@ -80,28 +91,88 @@ function updateStyle(key: keyof Style, value: unknown) {
         />
       </label>
 
-      <label class="form-field">
-        <span>Background</span>
-        <input
-          type="text"
-          placeholder="#ffffff"
-          :value="style?.background ?? ''"
-          @input="updateStyle('background', ($event.target as HTMLInputElement).value || undefined)"
-        />
-      </label>
-
-      <label class="form-field">
-        <span>Palette (comma-separated)</span>
-        <input
-          type="text"
-          :value="style?.palette?.join(', ') ?? ''"
-          placeholder="#2E86AB, #F6C85F, #6FB07F"
-          @input="updateStyle('palette', ($event.target as HTMLInputElement).value
-            .split(',')
-            .map(v => v.trim())
-            .filter(Boolean))"
-        />
-      </label>
+      <div class="form-field" style="grid-column: 1 / -1;">
+        <span>Background color</span>
+        <div class="color-swatch-grid">
+          <button
+            v-for="color in backgroundPresets"
+            :key="color"
+            type="button"
+            class="color-swatch"
+            :class="{ 'is-active': style?.background === color }"
+            :style="{ backgroundColor: color }"
+            @click="updateStyle('background', color)"
+            :title="color"
+          ></button>
+          
+          <div class="custom-color-trigger">
+            <input
+              type="color"
+              :value="style?.background || '#ffffff'"
+              @input="updateStyle('background', ($event.target as HTMLInputElement).value)"
+              class="color-input-hidden"
+              id="bg-custom-color"
+            />
+            <label for="bg-custom-color" class="color-swatch custom-trigger" title="Custom color">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+                <path d="M12 5v14M5 12h14"></path>
+              </svg>
+            </label>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 </template>
+
+<style scoped>
+.color-swatch-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e2e8f0);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.color-swatch:hover {
+  transform: scale(1.1);
+}
+
+.color-swatch.is-active {
+  border: 2px solid var(--primary, #2563eb);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.custom-color-trigger {
+  position: relative;
+}
+
+.color-input-hidden {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.custom-trigger {
+  background: white;
+  color: #64748b;
+}
+
+.custom-trigger:hover {
+  color: #2563eb;
+}
+</style>

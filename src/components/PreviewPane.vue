@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch, nextTick, onBeforeUnmount, computed, reactive } from "vue";
+import * as d3 from 'd3';
 import * as XLSX from 'xlsx';
 import type { ChartSpec } from "../specs/chartSpec";
 import { renderBarChart, type BuilderBarConfig } from "../charts/bar";
@@ -10,6 +11,8 @@ import { renderDotDonutChart } from "../charts/dotDonut";
 import { renderOrbitDonutChart } from "../charts/orbitDonut";
 import { renderPieDonutChart, type PieConfig } from "../charts/pie";
 import { renderAfricaMap, type MapConfig } from "../charts/map";
+import { renderStackedBarChart } from "../charts/stackedBar";
+import { renderScatterPlot } from "../charts/scatter";
 
 const props = defineProps<{
   spec: ChartSpec;
@@ -94,6 +97,28 @@ function uniqueValuesFor(col: string): string[] {
     set.add(String(v))
   }
   return Array.from(set.values()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+function renderChartTitle(svgEl: SVGSVGElement | null, spec: ChartSpec) {
+  if (!svgEl || !spec.title) {
+    if (svgEl) d3.select(svgEl).selectAll("text.chart-title").remove();
+    return;
+  }
+  const svg = d3.select(svgEl);
+  const width = Number(svg.attr("width")) || 800;
+  
+  // Clean up existing titles
+  svg.selectAll("text.chart-title").remove();
+  
+  svg.append("text")
+    .attr("class", "chart-title")
+    .attr("x", width / 2)
+    .attr("y", 25)
+    .attr("text-anchor", "middle")
+    .style("font-size", "18px")
+    .style("font-weight", "bold")
+    .style("fill", "#374151")
+    .text(spec.title);
 }
 
 const visibleFilterValues = computed(() => {
@@ -249,27 +274,43 @@ async function loadAndRender() {
         renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
       }
       renderBarChart(svg, props.spec, renderRows, { ...props.barConfig, numberFormat: props.barConfig?.numberFormat ?? '~s' });
+      renderChartTitle(svgRef.value, props.spec);
       status.value = "Rendered bar chart";
     } else if (props.spec.type === 'bubble') {
       svg.style.display = 'block';
       renderBubbleChart(svg, props.spec, filteredRows.value || []);
+      renderChartTitle(svg, props.spec);
       status.value = 'Rendered bubble chart';
     } else if (props.spec.type === 'dotDonut') {
       svg.style.display = 'block';
       renderDotDonutChart(svg, props.spec, filteredRows.value || []);
+      renderChartTitle(svg, props.spec);
       status.value = 'Rendered dot donut chart';
     } else if (props.spec.type === 'orbitDonut') {
       svg.style.display = 'block';
       renderOrbitDonutChart(svg, props.spec, filteredRows.value || []);
+      renderChartTitle(svg, props.spec);
       status.value = 'Rendered orbit donut chart';
     } else if (props.spec.type === 'pie') {
       svg.style.display = 'block';
       renderPieDonutChart(svg, props.spec, filteredRows.value || [], props.pieConfig);
+      renderChartTitle(svg, props.spec);
       status.value = 'Rendered pie chart';
     } else if (props.spec.type === 'map') {
       svg.style.display = 'block';
       renderAfricaMap(svg, props.spec, filteredRows.value || [], props.mapConfig);
+      renderChartTitle(svg, props.spec);
       status.value = 'Rendered Africa map';
+    } else if (props.spec.type === 'stackedBar') {
+      svg.style.display = 'block';
+      renderStackedBarChart(svg, props.spec, filteredRows.value || [], props.barConfig as any);
+      renderChartTitle(svg, props.spec);
+      status.value = 'Rendered stacked bar chart';
+    } else if (props.spec.type === 'scatter') {
+      svg.style.display = 'block';
+      renderScatterPlot(svg, props.spec, filteredRows.value || []);
+      renderChartTitle(svgRef.value, props.spec);
+      status.value = 'Rendered scatter plot';
     } else if (props.spec.type === "line") {
       // Hide the bar SVG and render line into the frame container
       svg.style.display = "none";
@@ -287,7 +328,7 @@ async function loadAndRender() {
         yType: 'linear',
         width,
         height,
-        margin: props.lineConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
+        margin: props.lineConfig?.margin ?? { top: 50, right: 24, bottom: 40, left: 52 },
         lineColor: props.lineConfig?.lineColor ?? '#2563eb',
         lineWidth: props.lineConfig?.lineWidth ?? 2,
         curveType: props.lineConfig?.curveType ?? 'linear',
@@ -315,6 +356,8 @@ async function loadAndRender() {
 
       const lineRows = filteredRows.value;
       lineChart = createLineChart(frameRef.value, lineRows, cfg);
+      const lineSvg = frameRef.value?.querySelector('svg') as SVGSVGElement | null;
+      renderChartTitle(lineSvg, props.spec);
       status.value = "Rendered line chart";
     } else if (props.spec.type === "area") {
       // Hide the bar SVG and render area into the frame container
@@ -332,7 +375,7 @@ async function loadAndRender() {
         yType: 'linear',
         width,
         height,
-        margin: props.areaConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
+        margin: props.areaConfig?.margin ?? { top: 50, right: 24, bottom: 40, left: 52 },
         responsive: true,
         backgroundColor: undefined,
         xDomain: props.areaConfig?.xDomain,
@@ -376,6 +419,8 @@ async function loadAndRender() {
 
       const areaRows = filteredRows.value;
       areaChart = drawAreaChart(frameRef.value, areaRows, cfg);
+      const areaSvg = frameRef.value?.querySelector('svg') as SVGSVGElement | null;
+      renderChartTitle(areaSvg, props.spec);
       status.value = "Rendered area chart";
     } else {
       status.value = `Type ${props.spec.type} not yet wired`;
@@ -557,6 +602,7 @@ function renderWithCurrentRows() {
       renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
     }
     renderBarChart(svgRef.value, props.spec, renderRows, { ...props.barConfig, numberFormat: props.barConfig?.numberFormat ?? '~s' });
+    renderChartTitle(svgRef.value, props.spec);
   } else if (props.spec.type === "line" && frameRef.value) {
     if (lineChart) { lineChart.destroy(); lineChart = null; }
     const xKey = props.spec.encoding.category.field;
@@ -569,7 +615,7 @@ function renderWithCurrentRows() {
       yType: 'linear',
       width: props.spec.layout?.width ?? 720,
       height: props.spec.layout?.height ?? 420,
-      margin: props.lineConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
+      margin: props.lineConfig?.margin ?? { top: 50, right: 24, bottom: 40, left: 52 },
       lineColor: props.lineConfig?.lineColor ?? '#2563eb',
       lineWidth: props.lineConfig?.lineWidth ?? 2,
       curveType: props.lineConfig?.curveType ?? 'linear',
@@ -595,6 +641,8 @@ function renderWithCurrentRows() {
       lineRows = lineRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
     }
     lineChart = createLineChart(frameRef.value, lineRows, cfg);
+    const lineSvg = frameRef.value?.querySelector('svg') as SVGSVGElement | null;
+    renderChartTitle(lineSvg, props.spec);
   } else if (props.spec.type === "area" && frameRef.value) {
     if (areaChart) { areaChart.destroy(); areaChart = null; }
     const xKey = props.spec.encoding.category.field;
@@ -607,7 +655,7 @@ function renderWithCurrentRows() {
       yType: 'linear',
       width: props.spec.layout?.width ?? 720,
       height: props.spec.layout?.height ?? 420,
-      margin: props.areaConfig?.margin ?? { top: 60, right: 24, bottom: 40, left: 52 },
+      margin: props.areaConfig?.margin ?? { top: 50, right: 24, bottom: 40, left: 52 },
       responsive: true,
       backgroundColor: undefined,
       xDomain: props.areaConfig?.xDomain,
@@ -650,27 +698,42 @@ function renderWithCurrentRows() {
       areaRows = areaRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
     }
     areaChart = drawAreaChart(frameRef.value, areaRows, cfg);
+    const areaSvg = frameRef.value?.querySelector('svg') as SVGSVGElement | null;
+    renderChartTitle(areaSvg, props.spec);
     } else if (props.spec.type === 'bubble') {
       svgRef.value!.style.display = 'block';
       renderBubbleChart(svgRef.value!, props.spec, filteredRows.value || []);
+      renderChartTitle(svgRef.value!, props.spec);
     } else if (props.spec.type === 'dotDonut') {
       svgRef.value!.style.display = 'block';
       renderDotDonutChart(svgRef.value!, props.spec, filteredRows.value || []);
+      renderChartTitle(svgRef.value!, props.spec);
     } else if (props.spec.type === 'orbitDonut') {
       svgRef.value!.style.display = 'block';
       renderOrbitDonutChart(svgRef.value!, props.spec, filteredRows.value || []);
+      renderChartTitle(svgRef.value!, props.spec);
     } else if (props.spec.type === 'pie') {
       svgRef.value!.style.display = 'block';
       renderPieDonutChart(svgRef.value!, props.spec, filteredRows.value || [], props.pieConfig);
+      renderChartTitle(svgRef.value!, props.spec);
     } else if (props.spec.type === 'map') {
       svgRef.value!.style.display = 'block';
       renderAfricaMap(svgRef.value!, props.spec, filteredRows.value || [], props.mapConfig);
+      renderChartTitle(svgRef.value!, props.spec);
+    } else if (props.spec.type === 'stackedBar') {
+      svgRef.value!.style.display = 'block';
+      renderStackedBarChart(svgRef.value!, props.spec, filteredRows.value || [], props.barConfig as any);
+      renderChartTitle(svgRef.value!, props.spec);
+    } else if (props.spec.type === 'scatter') {
+      svgRef.value!.style.display = 'block';
+      renderScatterPlot(svgRef.value!, props.spec, filteredRows.value || []);
+      renderChartTitle(svgRef.value!, props.spec);
     }
 }
 
 defineExpose({
   getSvgEl: () => {
-    if (props.spec.type === 'bar' || props.spec.type === 'bubble' || props.spec.type === 'dotDonut' || props.spec.type === 'orbitDonut' || props.spec.type === 'pie' || props.spec.type === 'map') return svgRef.value;
+    if (props.spec.type === 'bar' || props.spec.type === 'bubble' || props.spec.type === 'dotDonut' || props.spec.type === 'orbitDonut' || props.spec.type === 'pie' || props.spec.type === 'map' || props.spec.type === 'stackedBar' || props.spec.type === 'scatter') return svgRef.value;
     return frameRef.value?.querySelector('svg') as SVGSVGElement | null;
   },
   reload: loadAndRender,
@@ -706,7 +769,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
       <!-- removed global overlay; filter card will be placed inside the data panel -->
-      <div class="preview__frame" ref="frameRef">
+      <div class="preview__frame" ref="frameRef" :style="{ background: spec.style?.background || '#ffffff' }">
         <svg ref="svgRef"></svg>
       </div>
       <p class="muted" v-if="status">{{ status }}</p>
@@ -896,7 +959,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff;
   border-radius: 8px;
   overflow: hidden;
   /* allow max-width responsiveness but prefer enforced px size */

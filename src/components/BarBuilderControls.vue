@@ -15,7 +15,6 @@ export type BarBuilderConfig = {
   // New options
   labelAlignment: "left" | "right";
   separateLabelLine: boolean;
-  valueAlignment: "left" | "right";
   numberFormat: string;
   swapLabelsAndValues: boolean;
   replaceCodesWithFlags: boolean;
@@ -39,6 +38,13 @@ export type BarBuilderConfig = {
   sortBars: boolean;
   reverseOrder: boolean;
   groupBarsByColumn: boolean;
+  // Label styling
+  labelPosition: 'left' | 'right' | 'top' | 'bottom' | 'inside';
+  labelRotate: number;
+  labelDistance: number;
+  labelFontSize: number;
+  labelFontWeight: 'normal' | 'bold';
+  labelFontColor: string;
   overlays: BarOverlay[];
 };
 
@@ -127,10 +133,6 @@ const separateLabelLine = computed({
   set: (v: boolean) => emit("update:config", { ...props.config, separateLabelLine: v }),
 });
 
-const valueAlignment = computed({
-  get: () => props.config.valueAlignment,
-  set: (v: "left" | "right") => emit("update:config", { ...props.config, valueAlignment: v }),
-});
 
 const numberFormat = computed({
   get: () => props.config.numberFormat,
@@ -235,6 +237,36 @@ const reverseOrder = computed({
 const groupBarsByColumn = computed({
   get: () => props.config.groupBarsByColumn,
   set: (v: boolean) => emit("update:config", { ...props.config, groupBarsByColumn: v }),
+});
+
+const labelPosition = computed({
+  get: () => props.config.labelPosition ?? 'right',
+  set: (v: 'left' | 'right' | 'top' | 'bottom' | 'inside') => emit("update:config", { ...props.config, labelPosition: v }),
+});
+
+const labelRotate = computed({
+  get: () => props.config.labelRotate ?? 0,
+  set: (v: number) => emit("update:config", { ...props.config, labelRotate: v }),
+});
+
+const labelDistance = computed({
+  get: () => props.config.labelDistance ?? 5,
+  set: (v: number) => emit("update:config", { ...props.config, labelDistance: v }),
+});
+
+const labelFontSize = computed({
+  get: () => props.config.labelFontSize ?? 12,
+  set: (v: number) => emit("update:config", { ...props.config, labelFontSize: v }),
+});
+
+const labelFontWeight = computed({
+  get: () => props.config.labelFontWeight ?? 'normal',
+  set: (v: 'normal' | 'bold') => emit("update:config", { ...props.config, labelFontWeight: v }),
+});
+
+const labelFontColor = computed({
+  get: () => props.config.labelFontColor ?? '#333333',
+  set: (v: string) => emit("update:config", { ...props.config, labelFontColor: v }),
 });
 
 function updateOverlays(next: BarOverlay[]) {
@@ -446,8 +478,41 @@ function deleteOverlay(id: string) {
             :checked="showValues"
             @change="showValues = ($event.target as HTMLInputElement).checked"
           />
-          <span>Show values</span>
+          <span>Show Label</span>
         </label>
+      </div>
+
+      <div class="form-field form-field--wide">
+        <span>Label Position</span>
+        <div class="pill-group">
+          <button type="button" class="pill" :class="{ 'pill--active': labelPosition === 'left' }" @click="labelPosition = 'left'">left</button>
+          <button type="button" class="pill" :class="{ 'pill--active': labelPosition === 'right' }" @click="labelPosition = 'right'">right</button>
+          <button type="button" class="pill" :class="{ 'pill--active': labelPosition === 'top' }" @click="labelPosition = 'top'">top</button>
+          <button type="button" class="pill" :class="{ 'pill--active': labelPosition === 'bottom' }" @click="labelPosition = 'bottom'">bottom</button>
+          <button type="button" class="pill" :class="{ 'pill--active': labelPosition === 'inside' }" @click="labelPosition = 'inside'">inside</button>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <span>Label rotate</span>
+        <input type="number" :value="labelRotate" @input="labelRotate = Number(($event.target as HTMLInputElement).value)" />
+      </div>
+
+      <div class="form-field">
+        <span>Label distance</span>
+        <input type="number" :value="labelDistance" @input="labelDistance = Number(($event.target as HTMLInputElement).value)" />
+      </div>
+
+      <div class="form-field form-field--wide">
+        <span>Label font</span>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="number" :value="labelFontSize" @input="labelFontSize = Number(($event.target as HTMLInputElement).value)" style="width: 60px;" />
+          <select :value="labelFontWeight" @change="labelFontWeight = ($event.target as HTMLSelectElement).value as 'normal' | 'bold'" style="flex: 1;">
+            <option value="normal">Normal</option>
+            <option value="bold">Bold</option>
+          </select>
+          <input type="color" :value="labelFontColor" @input="labelFontColor = ($event.target as HTMLInputElement).value" />
+        </div>
       </div>
 
       <div class="form-field">
@@ -465,13 +530,6 @@ function deleteOverlay(id: string) {
         </label>
       </div>
 
-      <div class="form-field">
-        <span>Value alignment</span>
-        <div class="pill-group">
-          <button type="button" class="pill" :class="{ 'pill--active': valueAlignment === 'left' }" @click="valueAlignment = 'left'">Left</button>
-          <button type="button" class="pill" :class="{ 'pill--active': valueAlignment === 'right' }" @click="valueAlignment = 'right'">Right</button>
-        </div>
-      </div>
 
       <label class="form-field">
         <span>Number format</span>
@@ -521,13 +579,6 @@ function deleteOverlay(id: string) {
         <small class="muted">{{ yLabelOffset }} px</small>
       </label>
 
-      <div class="form-field">
-        <span>Labels alignment</span>
-        <div class="pill-group">
-          <button type="button" class="pill" :class="{ 'pill--active': labelAlignment === 'left' }" @click="labelAlignment = 'left'">Left</button>
-          <button type="button" class="pill" :class="{ 'pill--active': labelAlignment === 'right' }" @click="labelAlignment = 'right'">Right</button>
-        </div>
-      </div>
 
       <div class="form-field">
         <label class="checkbox">
