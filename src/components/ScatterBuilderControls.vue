@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from "vue";
 
 export interface ScatterBuilderConfig {
     animationDuration?: number;
@@ -24,9 +23,9 @@ function updateField(key: keyof ScatterBuilderConfig, value: any) {
 </script>
 
 <template>
-    <div class="builder-controls">
-        <div class="control-group">
-            <label>Point Radius</label>
+    <div class="form-grid">
+        <div class="form-field">
+            <span>Point Radius</span>
             <input 
                 type="range" 
                 min="1" 
@@ -34,11 +33,11 @@ function updateField(key: keyof ScatterBuilderConfig, value: any) {
                 :value="config.pointRadius || 5" 
                 @input="e => updateField('pointRadius', parseInt((e.target as HTMLInputElement).value))"
             />
-            <span class="value">{{ config.pointRadius || 5 }}px</span>
+            <small class="muted">{{ config.pointRadius || 5 }}px</small>
         </div>
 
-        <div class="control-group">
-            <label>Animation Duration</label>
+        <div class="form-field">
+            <span>Animation Duration</span>
             <input 
                 type="range" 
                 min="0" 
@@ -47,82 +46,44 @@ function updateField(key: keyof ScatterBuilderConfig, value: any) {
                 :value="config.animationDuration || 1000" 
                 @input="e => updateField('animationDuration', parseInt((e.target as HTMLInputElement).value))"
             />
-            <span class="value">{{ config.animationDuration || 1000 }}ms</span>
+            <small class="muted">{{ config.animationDuration || 1000 }}ms</small>
         </div>
 
-        <div class="control-group checkbox">
-            <label>
+        <div class="form-field">
+            <label class="checkbox">
                 <input 
                     type="checkbox" 
                     :checked="config.showGridlines !== false" 
                     @change="e => updateField('showGridlines', (e.target as HTMLInputElement).checked)"
                 />
-                Show Gridlines
+                <span>Show Gridlines</span>
             </label>
         </div>
 
-        <div class="control-group checkbox">
-            <label>
+        <div class="form-field">
+            <label class="checkbox">
                 <input 
                     type="checkbox" 
                     :checked="config.showLegend !== false" 
                     @change="e => updateField('showLegend', (e.target as HTMLInputElement).checked)"
                 />
-                Show Legend
+                <span>Show Legend</span>
             </label>
         </div>
 
-        <div class="control-group checkbox">
-            <label>
+        <div class="form-field">
+            <label class="checkbox">
                 <input 
                     type="checkbox" 
                     :checked="config.showTooltip !== false" 
                     @change="e => updateField('showTooltip', (e.target as HTMLInputElement).checked)"
                 />
-                Show Tooltips
+                <span>Show Tooltips</span>
             </label>
         </div>
     </div>
 </template>
 
 <style scoped>
-.builder-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    padding: 1rem;
-    background: #f8fafc;
-    border-radius: 8px;
-}
-
-.control-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.control-group.checkbox {
-    flex-direction: row;
-    align-items: center;
-}
-
-label {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: #475569;
-}
-
-input[type="range"] {
-    width: 100%;
-}
-
-.value {
-    font-size: 0.75rem;
-    color: #64748b;
-    text-align: right;
-}
-
-input[type="checkbox"] {
-    margin-right: 0.5rem;
-}
+/* No component-specific styles needed, using global form-grid/form-field */
 </style>

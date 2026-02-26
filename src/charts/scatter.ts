@@ -31,14 +31,6 @@ export function renderScatterPlot(
     const svg = d3.select(svgEl);
     const width = Number(svg.attr('width')) || 800;
     const height = Number(svg.attr('height')) || 450;
-    const margin = { top: 40, right: 150, bottom: 50, left: 60 };
-    const innerWidth = width - margin.left - margin.right;
-    const innerHeight = height - margin.top - margin.bottom;
-
-    svg.selectAll("*").remove();
-
-    const g = svg.append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
 
     // 1. Prepare Data
     const cleanData = data.filter(d =>
@@ -64,12 +56,12 @@ export function renderScatterPlot(
     const x = d3.scaleLinear()
         .domain([xExtent[0] - xPadding, xExtent[1] + xPadding])
         .nice()
-        .range([0, innerWidth]);
+        .range([0, 100]); // Temporary range
 
     const y = d3.scaleLinear()
         .domain([yExtent[0] - yPadding, yExtent[1] + yPadding])
         .nice()
-        .range([innerHeight, 0]);
+        .range([100, 0]); // Temporary range
 
     const r = d3.scaleSqrt()
         .domain(d3.extent(cleanData, d => sizeKey ? Number(d[sizeKey]) || 0 : 0) as [number, number])
@@ -79,6 +71,58 @@ export function renderScatterPlot(
     const color = d3.scaleOrdinal<string>()
         .domain(seriesList)
         .range(palette);
+
+    // 3. Dynamic Margins calculation
+    const tempSvg = svg.append('svg').style('visibility', 'hidden').style('position', 'absolute');
+    const tempText = tempSvg.append('text').style('font-size', '10px').style('font-family', 'sans-serif');
+
+    // Left margin based on Y-axis labels
+    let maxYLabelWidth = 0;
+    const yTicks = y.ticks();
+    yTicks.forEach(tick => {
+        tempText.text(tick);
+        const bbox = (tempText.node() as SVGTextElement).getBBox();
+        if (bbox.width > maxYLabelWidth) maxYLabelWidth = bbox.width;
+    });
+    const dynamicMarginLeft = Math.max(60, maxYLabelWidth + 20);
+
+    // Right margin based on Legend or right-most X-axis label
+    let dynamicMarginRight = 30;
+    if (showLegend && seriesKey) {
+        let maxLegendWidth = 0;
+        tempText.style('font-size', '12px');
+        seriesList.forEach(key => {
+            tempText.text(key);
+            const bbox = (tempText.node() as SVGTextElement).getBBox();
+            if (bbox.width > maxLegendWidth) maxLegendWidth = bbox.width;
+        });
+        // 20px padding + 15px color box + max text width
+        dynamicMarginRight = Math.max(150, 20 + 15 + maxLegendWidth + 20);
+    } else {
+        // Just check right-most tick just in case
+        let maxXLabelWidth = 0;
+        const xTicks = x.ticks();
+        if (xTicks.length > 0) {
+            tempText.text(String(xTicks[xTicks.length - 1]));
+            maxXLabelWidth = (tempText.node() as SVGTextElement).getBBox().width;
+        }
+        dynamicMarginRight = Math.max(30, maxXLabelWidth / 2 + 10);
+    }
+
+    tempSvg.remove();
+
+    const margin = { top: 40, right: dynamicMarginRight, bottom: 50, left: dynamicMarginLeft };
+    const innerWidth = width - margin.left - margin.right;
+    const innerHeight = height - margin.top - margin.bottom;
+
+    // Update ranges with actual inner dimensions
+    x.range([0, innerWidth]);
+    y.range([innerHeight, 0]);
+
+    svg.selectAll("*").remove();
+
+    const g = svg.append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
 
     // 3. Axes & Grid
     if (showGridlines) {

@@ -1,0 +1,107 @@
+[
+  {
+    "country": "Nigeria",
+    "gdpPerCapita": 2200,
+    "lifeExpectancy": 55,
+    "population": 211,
+    "region": "West Africa"
+  },
+  {
+    "country": "Ethiopia",
+    "gdpPerCapita": 950,
+    "lifeExpectancy": 67,
+    "population": 118,
+    "region": "East Africa"
+  },
+  {
+    "country": "Egypt",
+    "gdpPerCapita": 3600,
+    "lifeExpectancy": 72,
+    "population": 104,
+    "region": "North Africa"
+  },
+  {
+    "country": "South Africa",
+    "gdpPerCapita": 6300,
+    "lifeExpectancy": 64,
+    "population": 60,
+    "region": "Southern Africa"
+  },
+  {
+    "country": "Kenya",
+    "gdpPerCapita": 2100,
+    "lifeExpectancy": 67,
+    "population": 55,
+    "region": "East Africa"
+  },
+  {
+    "country": "Ghana",
+    "gdpPerCapita": 2300,
+    "lifeExpectancy": 64,
+    "population": 32,
+    "region": "West Africa"
+  },
+  {
+    "country": "Morocco",
+    "gdpPerCapita": 3400,
+    "lifeExpectancy": 76,
+    "population": 37,
+    "region": "North Africa"
+  },
+  {
+    "country": "Algeria",
+    "gdpPerCapita": 3300,
+    "lifeExpectancy": 77,
+    "population": 44,
+    "region": "North Africa"
+  },
+  {
+    "country": "Angola",
+    "gdpPerCapita": 1900,
+    "lifeExpectancy": 61,
+    "population": 34,
+    "region": "Central Africa"
+  },
+  {
+    "country": "Tanzania",
+    "gdpPerCapita": 1100,
+    "lifeExpectancy": 66,
+    "population": 61,
+    "region": "East Africa"
+  },
+  {
+    "country": "Senegal",
+    "gdpPerCapita": 1500,
+    "lifeExpectancy": 68,
+    "population": 17,
+    "region": "West Africa"
+  },
+  {
+    "country": "Uganda",
+    "gdpPerCapita": 850,
+    "lifeExpectancy": 63,
+    "population": 47,
+    "region": "East Africa"
+  },
+  {
+    "country": "Rwanda",
+    "gdpPerCapita": 800,
+    "lifeExpectancy": 69,
+    "population": 13,
+    "region": "East Africa"
+  },
+  {
+    "country": "Botswana",
+    "gdpPerCapita": 6700,
+    "lifeExpectancy": 70,
+    "population": 2.4,
+    "region": "Southern Africa"
+  },
+  {
+    "country": "Mauritius",
+    "gdpPerCapita": 9100,
+    "lifeExpectancy": 75,
+    "population": 1.3,
+    "region": "Southern Africa"
+  }
+]

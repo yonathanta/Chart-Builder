@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { reactive, watch } from "vue";
+import { reactive, watch, ref } from "vue";
 import * as XLSX from 'xlsx';
 import type { DataBinding } from "../specs/chartSpec";
 
 const props = defineProps<{
   binding: DataBinding;
+  fields?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -19,11 +20,6 @@ const local = reactive<DataBinding>({
   ...props.binding,
   query: { ...props.binding.query },
 });
-
-let fileObjectUrl: string | null = null;
-const schemaFields = reactive<{ keys: string[] }>({ keys: [] });
-const mapping = reactive<{ category?: string; value?: string; series?: string; years: string[] }>({ years: [] });
-let uploadedRows: any[] = [];
 
 let syncingFromProps = false;
 
@@ -54,10 +50,20 @@ const providerOptions: Array<{ label: string; value: DataBinding["provider"]; ki
     { label: "Database", value: "db", kind: "db" },
   ];
 
+const uploadStatus = ref<string | null>(null);
+const mapping = reactive<{ category?: string; value?: string; series?: string }>({});
+
+// Sync mapping with props.binding if available
+watch(() => props.binding.query.source, () => {
+  // If we have a source, we might want to check if preview has discovered fields
+}, { immediate: true });
+
 async function handleFileUpload(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
+
+  uploadStatus.value = "Processing...";
 
   try {
     let parsedRows: any[] = [];
@@ -68,117 +74,150 @@ async function handleFileUpload(event: Event) {
       const parsed = JSON.parse(text);
       parsedRows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.data) ? parsed.data : []);
     } else {
-      // use xlsx to read CSV/Excel/TSV
       const ab = await file.arrayBuffer();
       const wb = XLSX.read(ab, { type: 'array' });
       const first = wb.SheetNames[0];
-      const sheet = wb.Sheets[first];
-      parsedRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as any[];
+      if (first) {
+        const sheet = wb.Sheets[first];
+        if (sheet) {
+          parsedRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as any[];
+        }
+      }
     }
 
-    uploadedRows = parsedRows;
-    const first = uploadedRows[0] || {};
-    const keys = Object.keys(first);
-    schemaFields.keys = keys;
-    // naive defaults
-    mapping.category = keys.find(k => /cat|name|label/i.test(k)) || keys[0];
-    mapping.value = keys.find(k => /val|count|total|pop|population|amount|metric/i.test(k)) || keys[1];
-    mapping.series = keys.find(k => /year|date|month|time|series/i.test(k));
-    // derive years
-    if (mapping.series) {
-      const uniq = Array.from(new Set(uploadedRows.map(r => String(r[mapping.series!]))).values());
-      mapping.years = uniq;
-      emit("update:years", mapping.years);
-    } else {
-      mapping.years = [];
-      emit("update:years", []);
-    }
+    if (parsedRows.length === 0) throw new Error("File is empty or invalid format");
 
-    // create a JSON blob URL for the preview to consume
-    const textJson = JSON.stringify(uploadedRows);
-    if (fileObjectUrl) URL.revokeObjectURL(fileObjectUrl);
-    fileObjectUrl = URL.createObjectURL(new Blob([textJson], { type: "application/json" }));
+    const firstRow = parsedRows[0] || {};
+    const keys = Object.keys(firstRow);
+    
+    // Create mapping guesses
+    mapping.category = keys.find(k => /cat|name|label|country|region/i.test(k)) || keys[0];
+    mapping.value = keys.find(k => /val|count|total|pop|population|amount|metric|score/i.test(k)) || keys[1] || keys[0];
+    mapping.series = keys.find(k => /year|date|month|time|series|group/i.test(k));
+
+    // Create a JSON blob URL
+    const textJson = JSON.stringify(parsedRows);
+    const blobUrl = URL.createObjectURL(new Blob([textJson], { type: "application/json" }));
 
     local.provider = "json";
     local.kind = "json";
-    local.query.source = fileObjectUrl;
-    local.query.params = undefined;
+    local.query.source = blobUrl;
 
-    // Emit an initial encoding guess
-    if (mapping.category && mapping.value) {
-      emit("update:encoding", { category: mapping.category, value: mapping.value, series: mapping.series });
+    // Emit updates
+    emit("update:encoding", { 
+      category: mapping.category || '', 
+      value: mapping.value || '', 
+      series: mapping.series 
+    });
+    
+    if (mapping.series) {
+      const uniq = Array.from(new Set(parsedRows.map(r => String(r[mapping.series!]))).values());
+      emit("update:years", uniq);
     }
-    emit("navigate:config");
-    // Ask the preview to reload immediately after upload so users see the data
+
+    uploadStatus.value = `Success: ${parsedRows.length} rows loaded.`;
     emit("preview-refresh");
   } catch (err) {
-    alert("Failed to parse file. Please upload a valid JSON, CSV, or Excel file.");
+    uploadStatus.value = "Error: Failed to parse file.";
     console.error(err);
   } finally {
-    // clear input so the same file can be re-uploaded if needed
     if (input) input.value = '';
   }
 }
 
-// download helpers removed — templates no longer exposed in UI
-
-// Keep the blob URL alive while the preview may still need it.
-// We previously revoked the blob URL on unmount which caused the preview
-// to sometimes attempt to fetch an already-revoked blob (ERR_FILE_NOT_FOUND).
-// The blob is revoked when replaced or when the page unloads; explicit
-// revocation can be added later if desired.
+function updateMapping(key: 'category' | 'value' | 'series', val: string) {
+  mapping[key] = val || undefined;
+  if (mapping.category && mapping.value) {
+    emit("update:encoding", { 
+      category: mapping.category, 
+      value: mapping.value, 
+      series: mapping.series 
+    });
+  }
+}
 </script>
 
 <template>
-  <section class="panel">
-    <header class="panel__header">
-      <div>
-        <p class="eyebrow">Step 2b</p>
-        <h2 class="panel__title">Bind data source</h2>
+  <div class="form-grid">
+    <div class="form-field form-field--wide">
+      <span>Upload Data (JSON, CSV, Excel)</span>
+      <div class="upload-container">
+        <input type="file" accept="application/json,.csv,.tsv,.xls,.xlsx" @change="handleFileUpload" class="file-input" />
+        <div v-if="uploadStatus" :class="uploadStatus.startsWith('Error') ? 'status--error' : 'status--ok'" class="status-msg">
+          {{ uploadStatus }}
+        </div>
       </div>
-    </header>
-
-    <div class="form-grid">
-      <label class="form-field">
-        <span>Provider</span>
-        <select
-          v-model="local.provider"
-          @change="local.kind = providerOptions.find(p => p.value === local.provider)?.kind ?? local.kind"
-        >
-          <option v-for="opt in providerOptions" :key="opt.value" :value="opt.value">
-            {{ opt.label }}
-          </option>
-        </select>
-      </label>
-
-      <label class="form-field">
-        <span>Kind</span>
-        <input type="text" v-model="local.kind" readonly />
-      </label>
-
-      <label class="form-field form-field--wide">
-        <span>Source URL / table</span>
-        <input type="text" v-model="local.query.source" placeholder="/api/data.json or table name" />
-      </label>
-
-      <label class="form-field">
-        <span>Upload JSON / CSV / Excel</span>
-        <input type="file" accept="application/json,.csv,.tsv,.xls,.xlsx" @change="handleFileUpload" />
-      </label>
-
-      
     </div>
 
-    
-
-    <!-- Map fields UI disabled per request -->
-    <!-- <div v-if="schemaFields.keys.length" class="panel" style="margin-top: 16px;">
-      <header class="panel__header">
-        <h3 class="panel__title">Map fields</h3>
-      </header>
-      <div class="form-grid">
-        ...
+    <div v-if="fields && fields.length" class="form-field form-field--wide" style="margin-top: 12px; border-top: 1px solid #eee; padding-top: 12px;">
+      <h4 class="settings-subtitle" style="margin-bottom: 12px;">Field Mapping</h4>
+      <div class="form-grid" style="grid-template-columns: 1fr; gap: 12px;">
+        <label class="form-field">
+          <span>Category (X-Axis)</span>
+          <select :value="mapping.category" @change="updateMapping('category', ($event.target as HTMLSelectElement).value)">
+            <option v-for="f in fields" :key="f" :value="f">{{ f }}</option>
+          </select>
+        </label>
+        <label class="form-field">
+          <span>Value (Y-Axis)</span>
+          <select :value="mapping.value" @change="updateMapping('value', ($event.target as HTMLSelectElement).value)">
+            <option v-for="f in fields" :key="f" :value="f">{{ f }}</option>
+          </select>
+        </label>
+        <label class="form-field">
+          <span>Series / Color</span>
+          <select :value="mapping.series" @change="updateMapping('series', ($event.target as HTMLSelectElement).value)">
+            <option value="">None</option>
+            <option v-for="f in fields" :key="f" :value="f">{{ f }}</option>
+          </select>
+        </label>
       </div>
-    </div> -->
-  </section>
+    </div>
+
+    <div class="form-field">
+      <span>Provider</span>
+      <select
+        v-model="local.provider"
+        @change="local.kind = providerOptions.find(p => p.value === local.provider)?.kind ?? local.kind"
+      >
+        <option v-for="opt in providerOptions" :key="opt.value" :value="opt.value">
+          {{ opt.label }}
+        </option>
+      </select>
+    </div>
+
+    <div class="form-field">
+      <span>Source URL</span>
+      <input type="text" v-model="local.query.source" placeholder="/api/data.json" />
+    </div>
+  </div>
 </template>
+
+<style scoped>
+.status-msg {
+  font-size: 13px;
+  font-weight: 600;
+}
+.status--ok { color: #10b981; }
+.status--error { color: #ef4444; }
+
+.upload-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.file-input {
+  font-size: 13px;
+  width: 100%;
+}
+
+.settings-subtitle {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin: 0;
+}
+</style>

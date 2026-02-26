@@ -1,7 +1,5 @@
 import * as d3 from 'd3';
 
-type XYValue = number | Date | string | null | undefined;
-
 export type LineChartConfig = {
   // Layout & Dimensions
   width?: number;
@@ -118,6 +116,10 @@ function isNumber(n: any): n is number {
   return typeof n === 'number' && !Number.isNaN(n);
 }
 
+function coalesceNum(n: number | undefined | null, fallback = 0): number {
+  return (n === undefined || n === null || Number.isNaN(n)) ? fallback : n;
+}
+
 function coerceContainer(container: ContainerLike): HTMLElement {
   if (!container) throw new Error('LineChart: container is required');
   if (typeof container === 'string') {
@@ -156,12 +158,100 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
   // Effective x-type that may adapt based on data
   let currentXType: NonNullable<LineChartConfig['xType']> = cfg.xType || 'time';
 
+  function preprocess(source: any[]): any[] {
+    const arr = (source || []).slice();
+    if (cfg.xType === 'time' && parseTime) {
+      arr.forEach(d => {
+        const raw = d[cfg.xKey];
+        const dt = raw instanceof Date ? raw : parseTime(String(raw));
+        d.__xDate = dt as Date | null;
+      });
+      // Auto-fallback if no valid dates parsed
+      const validDates = arr.filter(d => d.__xDate instanceof Date);
+      if (validDates.length === 0) {
+        const allNumeric = arr.every(d => d[cfg.xKey] !== null && d[cfg.xKey] !== undefined && isNumber(+d[cfg.xKey]));
+        currentXType = allNumeric ? 'linear' : 'category';
+      } else {
+        currentXType = 'time';
+      }
+    } else if (cfg.xType) {
+      currentXType = cfg.xType;
+    } else {
+      // Heuristic if xType not provided
+      const first = arr.find(d => d && d[cfg.xKey] !== undefined);
+      if (first) {
+        currentXType = isNumber(+first[cfg.xKey]) ? 'linear' : 'category';
+      }
+    }
+    return arr;
+  }
+
+  // Generate scales early to calculate margins
+  function setScales(arr: any[]) {
+    // X scale
+    if (currentXType === 'time') {
+      const domain = d3.extent(arr, (d: any) => d.__xDate as Date) as [Date, Date];
+      xScale = d3.scaleTime().domain(domain).range([0, 100]); // Temporary range
+    } else if (currentXType === 'linear') {
+      const domain = d3.extent(arr, (d: any) => +d[cfg.xKey]) as [number, number];
+      xScale = d3.scaleLinear().domain(domain).nice().range([0, 100]);
+    } else {
+      const cats = Array.from(new Set(arr.map(d => String(d[cfg.xKey]))));
+      xScale = d3.scalePoint().domain(cats).range([0, 100]).padding(0.5);
+    }
+
+    // Y scale
+    const yMax = d3.max(arr, (d: any) => +d[cfg.yKey]) || 0;
+    const yMin = d3.min(arr, (d: any) => +d[cfg.yKey]) || 0;
+    const domain: [number, number] = cfg.yDomain ? cfg.yDomain : [Math.min(0, yMin), yMax];
+    yScale = d3.scaleLinear().domain(domain).nice().range([100, 0]);
+  }
+
+  const preprocessedData = preprocess(currentData);
+  setScales(preprocessedData);
+
+  // Dynamically calculate margins
+  let dynamicMarginLeft = DEFAULTS.margin.left;
+  let dynamicMarginRight = DEFAULTS.margin.right;
+  let computedWidth = cfg.width || getInnerSize(rootEl, DEFAULTS.width, DEFAULTS.height).width;
+  let computedHeight = cfg.height || DEFAULTS.height;
+
+  // Temporary SVG for text measurement
+  const tempSvg = d3.select(rootEl).append('svg').style('visibility', 'hidden').style('position', 'absolute');
+  const tempText = tempSvg.append('text').style('font-size', '10px').style('font-family', 'sans-serif');
+
+  if (cfg.showYAxis) {
+    let maxYLabelWidth = 0;
+    const ticks = yScale.ticks(cfg.yTicks || DEFAULTS.yTicks);
+    const tickFormatFn = cfg.yTickFormat ? (typeof cfg.yTickFormat === 'function' ? cfg.yTickFormat : d3.format(cfg.yTickFormat)) : (d: any) => `${d}`;
+
+    ticks.forEach(tick => {
+      tempText.text(tickFormatFn(tick));
+      const bbox = (tempText.node() as SVGTextElement).getBBox();
+      if (bbox.width > maxYLabelWidth) maxYLabelWidth = bbox.width;
+    });
+    dynamicMarginLeft = Math.max(DEFAULTS.margin.left, maxYLabelWidth + 15);
+  }
+
+  tempSvg.remove();
+
   // Dimensions
-  const margins = cfg.margin || DEFAULTS.margin;
-  let width = cfg.width || getInnerSize(rootEl, DEFAULTS.width, DEFAULTS.height).width;
-  let height = cfg.height || DEFAULTS.height;
+  const margins = { ...DEFAULTS.margin, ...(cfg.margin || {}), left: dynamicMarginLeft, right: dynamicMarginRight };
+  let width = computedWidth;
+  let height = computedHeight;
   let innerWidth = Math.max(0, width - margins.left - margins.right);
   let innerHeight = Math.max(0, height - margins.top - margins.bottom);
+
+  // Update scale ranges with precise inner widths
+  if (currentXType === 'time') {
+    (xScale as d3.ScaleTime<number, number>).range([0, innerWidth]);
+  } else if (currentXType === 'linear') {
+    (xScale as d3.ScaleLinear<number, number>).range([0, innerWidth]);
+  } else {
+    (xScale as d3.ScalePoint<string>).range([0, innerWidth]);
+  }
+  yScale.range([innerHeight, 0]);
+
 
   // Root SVG
   const svg = d3.select(rootEl)
@@ -228,42 +318,15 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
       return y !== null && y !== undefined && isNumber(+y);
     })
     .x((d: any) => {
-      const xv = d[cfg.xKey] as XYValue;
-      if (currentXType === 'time') return (xScale as d3.ScaleTime<number, number>)(d.__xDate as Date);
-      if (currentXType === 'linear') return (xScale as d3.ScaleLinear<number, number>)(+xv!);
-      return (xScale as d3.ScalePoint<string>)(String(xv)) as number;
+      const xv = d[cfg.xKey];
+      if (currentXType === 'time') return coalesceNum((xScale as d3.ScaleTime<number, number>)(d.__xDate as Date));
+      if (currentXType === 'linear') return coalesceNum((xScale as d3.ScaleLinear<number, number>)(+xv));
+      return coalesceNum((xScale as d3.ScalePoint<string>)(String(xv)) as number);
     })
-    .y((d: any) => (yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey]));
+    .y((d: any) => coalesceNum((yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey])));
 
-  function preprocess(source: any[]): any[] {
-    const arr = (source || []).slice();
-    if (cfg.xType === 'time' && parseTime) {
-      arr.forEach(d => {
-        const raw = d[cfg.xKey];
-        const dt = raw instanceof Date ? raw : parseTime(String(raw));
-        d.__xDate = dt as Date | null;
-      });
-      // Auto-fallback if no valid dates parsed
-      const validDates = arr.filter(d => d.__xDate instanceof Date);
-      if (validDates.length === 0) {
-        const allNumeric = arr.every(d => d[cfg.xKey] !== null && d[cfg.xKey] !== undefined && isNumber(+d[cfg.xKey]));
-        currentXType = allNumeric ? 'linear' : 'category';
-      } else {
-        currentXType = 'time';
-      }
-    } else if (cfg.xType) {
-      currentXType = cfg.xType;
-    } else {
-      // Heuristic if xType not provided
-      const first = arr.find(d => d && d[cfg.xKey] !== undefined);
-      if (first) {
-        currentXType = isNumber(+first[cfg.xKey]) ? 'linear' : 'category';
-      }
-    }
-    return arr;
-  }
-
-  function setScales(arr: any[]) {
+  // Preprocess and set scales are now moved to initialization, we only update scales here for resizing/updates
+  function updateScales(arr: any[]) {
     // X scale
     if (currentXType === 'time') {
       const domain = d3.extent(arr, (d: any) => d.__xDate as Date) as [Date, Date];
@@ -373,29 +436,29 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
       .attr('stroke', '#fff')
       .attr('stroke-width', 1.2)
       .attr('cx', (d: any) => {
-        const xv = d[cfg.xKey] as XYValue;
-        if (currentXType === 'time') return (xScale as d3.ScaleTime<number, number>)(d.__xDate as Date);
-        if (currentXType === 'linear') return (xScale as d3.ScaleLinear<number, number>)(+xv!);
-        return (xScale as d3.ScalePoint<string>)(String(xv)) as number;
+        const xv = d[cfg.xKey];
+        if (currentXType === 'time') return coalesceNum((xScale as d3.ScaleTime<number, number>)(d.__xDate as Date));
+        if (currentXType === 'linear') return coalesceNum((xScale as d3.ScaleLinear<number, number>)(+xv));
+        return coalesceNum((xScale as d3.ScalePoint<string>)(String(xv)) as number);
       })
-      .attr('cy', (d: any) => (yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey]))
+      .attr('cy', (d: any) => coalesceNum((yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey])))
       .on('mouseover', function () { d3.select(this).attr('fill', cfg.hoverColor || DEFAULTS.hoverColor); })
       .on('mouseout', function () { d3.select(this).attr('fill', cfg.lineColor || DEFAULTS.lineColor); });
 
     // UPDATE
-    sel.merge(entered)
-      .transition()
+    const merged = sel.merge(entered as any);
+    merged.transition()
       .duration(cfg.animate ? (cfg.duration || DEFAULTS.duration) : 0)
       .ease(d3.easeCubicOut)
       .attr('r', cfg.pointRadius || DEFAULTS.pointRadius)
       .attr('fill', cfg.lineColor || DEFAULTS.lineColor)
       .attr('cx', (d: any) => {
-        const xv = d[cfg.xKey] as XYValue;
-        if (currentXType === 'time') return (xScale as d3.ScaleTime<number, number>)(d.__xDate as Date);
-        if (currentXType === 'linear') return (xScale as d3.ScaleLinear<number, number>)(+xv!);
-        return (xScale as d3.ScalePoint<string>)(String(xv)) as number;
+        const xv = d[cfg.xKey];
+        if (currentXType === 'time') return coalesceNum((xScale as d3.ScaleTime<number, number>)(d.__xDate as Date));
+        if (currentXType === 'linear') return coalesceNum((xScale as d3.ScaleLinear<number, number>)(+xv));
+        return coalesceNum((xScale as d3.ScalePoint<string>)(String(xv)) as number);
       })
-      .attr('cy', (d: any) => (yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey]));
+      .attr('cy', (d: any) => coalesceNum((yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey])));
 
     // EXIT
     sel.exit().remove();
@@ -413,9 +476,9 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
     const bisect = currentXType !== 'category' ? d3.bisector((d: any) => (currentXType === 'time' ? (d.__xDate as Date).getTime() : +d[cfg.xKey])).left : null;
 
     overlay
-      .on('mousemove', function () {
+      .on('mousemove', function (event) {
         if (!tooltipEl) return;
-        const [mx, my] = d3.mouse(this as any);
+        const [mx, my] = d3.pointer(event, this as any);
 
         let nearest: any | null = null;
         if (currentXType === 'category') {
@@ -440,11 +503,7 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
         }
 
         if (!nearest) return;
-        const xv = nearest[cfg.xKey] as XYValue;
-        const cx = currentXType === 'time' ? (xScale as d3.ScaleTime<number, number>)(nearest.__xDate as Date)
-          : currentXType === 'linear' ? (xScale as d3.ScaleLinear<number, number>)(+xv!)
-            : (xScale as d3.ScalePoint<string>)(String(xv)) as number;
-        const cy = (yScale as d3.ScaleLinear<number, number>)(+nearest[cfg.yKey]);
+        const xv = nearest[cfg.xKey];
         // Place tooltip near cursor for better readability
         tooltipEl.style.left = `${margins.left + mx}px`;
         tooltipEl.style.top = `${margins.top + my}px`;
@@ -459,17 +518,17 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
       });
 
     function xPos(d: any) {
-      const xv = d[cfg.xKey] as XYValue;
-      if (currentXType === 'time') return (xScale as d3.ScaleTime<number, number>)(d.__xDate as Date);
-      if (currentXType === 'linear') return (xScale as d3.ScaleLinear<number, number>)(+xv!);
-      return (xScale as d3.ScalePoint<string>)(String(xv)) as number;
+      const xv = d[cfg.xKey];
+      if (currentXType === 'time') return coalesceNum((xScale as d3.ScaleTime<number, number>)(d.__xDate as Date));
+      if (currentXType === 'linear') return coalesceNum((xScale as d3.ScaleLinear<number, number>)(+xv));
+      return coalesceNum((xScale as d3.ScalePoint<string>)(String(xv)) as number);
     }
   }
 
   function draw() {
     if (destroyed) return;
     const arr = preprocess(currentData);
-    setScales(arr);
+    updateScales(arr);
     overlay.attr('width', innerWidth).attr('height', innerHeight);
     renderGrid();
     renderAxes();

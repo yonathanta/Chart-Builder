@@ -148,10 +148,92 @@ export function renderBarChart(
   const width = Number(svg.attr('width')) || 800;
   const height = Number(svg.attr('height')) || 450;
 
-  const margin = { top: 60, right: 30, bottom: 60, left: 70 };
+  /* ============================
+     2. CONFIG EXTRACTION & DATA PREPARATION
+     ============================ */
+
+  const style = (spec as any).style || {};
+  const layoutPreset = spec.layout?.preset;
+  const orientation = style.orientation || (layoutPreset === 'horizontal' ? 'horizontal' : 'vertical'); // vertical | horizontal
+  let mode = style.mode || (spec.encoding.series ? 'grouped' : 'simple'); // simple | grouped | stacked | stacked100
+  const animation = style.animation ?? true;
+  const easingFn = d3.easeBackOut; // specified easing for growth animations
+
+  const categoryKey = spec.encoding.category.field;
+  const valueKey = spec.encoding.value.field;
+  const seriesKey = spec.encoding.series?.field;
+
+  if (cfg.groupBarsByColumn && seriesKey) {
+    mode = 'grouped';
+  }
+
+  let categories = [...new Set(data.map(d => d[categoryKey]))];
+  const series = seriesKey
+    ? [...new Set(data.map(d => d[seriesKey as string]))]
+    : [];
+
+  if (cfg.sortBars) {
+    const roll = d3.rollup(
+      data,
+      vals => d3.sum(vals, v => Number(v[valueKey]) || 0),
+      d => d[categoryKey]
+    );
+    categories = [...categories].sort((a, b) => (roll.get(b) ?? 0) - (roll.get(a) ?? 0));
+  }
+  if (cfg.reverseOrder) {
+    categories = [...categories].reverse();
+  }
+
+  // Dynamically calculate margin.left for horizontal charts to prevent label cropping
+  let dynamicMarginLeft = 70;
+  if (orientation === 'horizontal') {
+    const tempText = svg.append('text')
+      .style('visibility', 'hidden')
+      .style('font-size', `${cfg.labelFontSize}px`)
+      .style('font-weight', cfg.labelFontWeight);
+
+    let maxLabelWidth = 0;
+    categories.forEach(cat => {
+      tempText.text(String(cat));
+      const bbox = (tempText.node() as SVGTextElement).getBBox();
+      if (bbox.width > maxLabelWidth) maxLabelWidth = bbox.width;
+    });
+    tempText.remove();
+    dynamicMarginLeft = Math.max(70, maxLabelWidth + 20); // Maintain at least 70px, add 20px padding
+  }
+
+  // Dynamically calculate margin.right to prevent value labels from cropping
+  let dynamicMarginRight = 30;
+  if (cfg.showValues) {
+    const tempText = svg.append('text')
+      .style('visibility', 'hidden')
+      .style('font-size', `${cfg.labelFontSize}px`)
+      .style('font-weight', cfg.labelFontWeight);
+
+    let maxValueWidth = 0;
+    const fmt = d3.format(cfg.numberFormat);
+    const getBarId = (d: any) => (seriesKey ? `${d[categoryKey]}-${d[seriesKey]}` : `${d[categoryKey]}`);
+
+    data.forEach(d => {
+      const v = Number(d[valueKey]);
+      const text = Number.isFinite(v) ? fmt(v) : String(d[valueKey] ?? '');
+      const labelText = overrides?.[getBarId(d)]?.label ?? text;
+      tempText.text(labelText);
+      const bbox = (tempText.node() as SVGTextElement).getBBox();
+      if (bbox.width > maxValueWidth) maxValueWidth = bbox.width;
+    });
+    tempText.remove();
+
+    if (orientation === 'horizontal') {
+      dynamicMarginRight = Math.max(30, maxValueWidth + 20); // Add padding for horizontal labels at the end of bars
+    } else if (cfg.labelPosition === 'right') {
+      dynamicMarginRight = Math.max(30, maxValueWidth + 20); // Add padding if labels are placed to the right of vertical bars
+    }
+  }
+
+  const margin = { top: 60, right: dynamicMarginRight, bottom: 60, left: dynamicMarginLeft };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
-
 
   const root = svg
     .attr('width', width)
@@ -161,6 +243,11 @@ export function renderBarChart(
     .join('g')
     .attr('class', 'chart-root')
     .attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Track orientation to avoid animating grid/axes across flips (causes shear).
+  const previousOrientation = (root.attr('data-orientation') as string) || '';
+  const orientationChanged = previousOrientation !== orientation;
+  root.attr('data-orientation', orientation);
 
   const gridLayer = root
     .selectAll<SVGGElement, unknown>('g.gridlines')
@@ -234,51 +321,6 @@ export function renderBarChart(
   tooltipEl.style.opacity = '0';
   tooltipEl.style.transition = 'opacity 120ms ease';
   parentNode.appendChild(tooltipEl);
-
-  /* ============================
-     2. CONFIG EXTRACTION
-     ============================ */
-
-  const style = (spec as any).style || {};
-  const layoutPreset = spec.layout?.preset;
-  const orientation = style.orientation || (layoutPreset === 'horizontal' ? 'horizontal' : 'vertical'); // vertical | horizontal
-  let mode = style.mode || (spec.encoding.series ? 'grouped' : 'simple'); // simple | grouped | stacked | stacked100
-  const animation = style.animation ?? true;
-  const easingFn = d3.easeBackOut; // specified easing for growth animations
-
-  // Track orientation to avoid animating grid/axes across flips (causes shear).
-  const previousOrientation = (root.attr('data-orientation') as string) || '';
-  const orientationChanged = previousOrientation !== orientation;
-  root.attr('data-orientation', orientation);
-
-  const categoryKey = spec.encoding.category.field;
-  const valueKey = spec.encoding.value.field;
-  const seriesKey = spec.encoding.series?.field;
-
-  if (cfg.groupBarsByColumn && seriesKey) {
-    mode = 'grouped';
-  }
-
-  /* ============================
-     3. DATA PREPARATION
-     ============================ */
-
-  let categories = [...new Set(data.map(d => d[categoryKey]))];
-  const series = seriesKey
-    ? [...new Set(data.map(d => d[seriesKey as string]))]
-    : [];
-
-  if (cfg.sortBars) {
-    const roll = d3.rollup(
-      data,
-      vals => d3.sum(vals, v => Number(v[valueKey]) || 0),
-      d => d[categoryKey]
-    );
-    categories = [...categories].sort((a, b) => (roll.get(b) ?? 0) - (roll.get(a) ?? 0));
-  }
-  if (cfg.reverseOrder) {
-    categories = [...categories].reverse();
-  }
 
   // Small multiples: facet by series if available; fallback to single render when no series.
   if (layoutPreset === 'smallMultiples' && seriesKey && series.length > 0) {

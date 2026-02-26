@@ -1,18 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref, watch, nextTick, onBeforeUnmount, computed, reactive } from "vue";
-import * as d3 from 'd3';
-import * as XLSX from 'xlsx';
 import type { ChartSpec } from "../specs/chartSpec";
 import { renderBarChart, type BuilderBarConfig } from "../charts/bar";
 import { createLineChart, type LineChartConfig, type LineChartInstance } from "../charts/line";
 import { drawAreaChart, type AreaChartConfig, type AreaChartInstance } from "../charts/areaV7";
-import { renderBubbleChart } from "../charts/bubble";
-import { renderDotDonutChart } from "../charts/dotDonut";
-import { renderOrbitDonutChart } from "../charts/orbitDonut";
+import { renderDotDonutChart, type DotDonutConfig } from "../charts/dotDonut";
 import { renderPieDonutChart, type PieConfig } from "../charts/pie";
+import { renderScatterPlot, type ScatterConfig } from "../charts/scatter";
 import { renderAfricaMap, type MapConfig } from "../charts/map";
-import { renderStackedBarChart } from "../charts/stackedBar";
-import { renderScatterPlot } from "../charts/scatter";
+import { renderBubbleChart, type BubbleChartConfig } from "../charts/bubble";
+import { renderStackedBarChart, type StackedBarConfig } from "../charts/stackedBar";
+import { renderOrbitDonutChart, type OrbitDonutConfig } from "../charts/orbitDonut";
 
 const props = defineProps<{
   spec: ChartSpec;
@@ -20,8 +18,13 @@ const props = defineProps<{
   barConfig?: BuilderBarConfig;
   lineConfig?: Partial<LineChartConfig>;
   areaConfig?: Partial<AreaChartConfig>;
+  dotDonutConfig?: DotDonutConfig;
   pieConfig?: PieConfig;
+  scatterConfig?: ScatterConfig;
   mapConfig?: MapConfig;
+  bubbleConfig?: BubbleChartConfig;
+  stackedBarConfig?: StackedBarConfig;
+  orbitDonutConfig?: OrbitDonutConfig;
   selectedYears?: string[];
 }>();
 
@@ -43,12 +46,6 @@ const selectedRow = ref<number | null>(null);
 const selectedColumn = ref<string | null>(null);
 const mapping = reactive<{ category?: string; value?: string; series?: string }>({});
 const editValue = ref<string>("");
-const newColumnName = ref<string>("");
-const renameFrom = ref<string>("");
-const renameTo = ref<string>("");
-const page = ref<number>(1);
-const pageSize = ref<number>(25);
-const pageSizeOptions = [10, 25, 50, 100];
 // Excel-like value filters per column
 const valueFilterSelections = reactive({} as Record<string, Set<string> | null>);
 const openFilterCol = ref<string | null>(null);
@@ -56,7 +53,10 @@ const filterPosition = ref<{ top: number; left: number }>({ top: 0, left: 0 });
 const valueFilterSearch = ref<string>("");
 const tempSelection = ref<Set<string>>(new Set());
 
-const columns = computed(() => rows.value.length ? Object.keys(rows.value[0]) : []);
+const columns = computed(() => {
+  const first = rows.value[0];
+  return first ? Object.keys(first) : [];
+});
 
 watch(
   () => props.spec.encoding,
@@ -81,13 +81,11 @@ watch(columns, (cols) => {
     mapping.value = undefined;
     mapping.series = undefined;
   }
-  page.value = 1;
 }, { immediate: true });
 
 watch(columns, (cols) => {
   // prune any value filters for columns that no longer exist
   Object.keys(valueFilterSelections).forEach(key => { if (!cols.includes(key)) delete valueFilterSelections[key]; });
-  page.value = 1;
 }, { immediate: true });
 
 function uniqueValuesFor(col: string): string[] {
@@ -99,28 +97,6 @@ function uniqueValuesFor(col: string): string[] {
   return Array.from(set.values()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 }
 
-function renderChartTitle(svgEl: SVGSVGElement | null, spec: ChartSpec) {
-  if (!svgEl || !spec.title) {
-    if (svgEl) d3.select(svgEl).selectAll("text.chart-title").remove();
-    return;
-  }
-  const svg = d3.select(svgEl);
-  const width = Number(svg.attr("width")) || 800;
-  
-  // Clean up existing titles
-  svg.selectAll("text.chart-title").remove();
-  
-  svg.append("text")
-    .attr("class", "chart-title")
-    .attr("x", width / 2)
-    .attr("y", 25)
-    .attr("text-anchor", "middle")
-    .style("font-size", "18px")
-    .style("font-weight", "bold")
-    .style("fill", "#374151")
-    .text(spec.title);
-}
-
 const visibleFilterValues = computed(() => {
   const col = openFilterCol.value;
   if (!col) return [] as string[];
@@ -129,16 +105,6 @@ const visibleFilterValues = computed(() => {
   return term ? all.filter(v => v.toLowerCase().includes(term)) : all;
 });
 
-function humanizeValue(val: unknown): string {
-  const num = Number(val);
-  if (!Number.isFinite(num)) return String(val ?? "");
-  const abs = Math.abs(num);
-  const format = (n: number, suffix: string) => `${+(n.toFixed(1))}${suffix}`;
-  if (abs >= 1_000_000_000) return format(num / 1_000_000_000, 'B');
-  if (abs >= 1_000_000) return format(num / 1_000_000, 'M');
-  if (abs >= 1_000) return format(num / 1_000, 'K');
-  return `${num}`;
-}
 
 function openValueFilter(col: string, event?: MouseEvent) {
   openFilterCol.value = openFilterCol.value === col ? null : col;
@@ -174,7 +140,6 @@ function applyValueFilter() {
   // If all selected, treat as no filter
   valueFilterSelections[col] = selected.length === all.length ? null : new Set(selected);
   openFilterCol.value = null;
-  page.value = 1;
 }
 
 function clearValueFilter(col?: string) {
@@ -182,7 +147,6 @@ function clearValueFilter(col?: string) {
   if (!key) return;
   valueFilterSelections[key] = null;
   if (!col) openFilterCol.value = null;
-  page.value = 1;
 }
 
 function isColFiltered(col: string) {
@@ -216,15 +180,6 @@ watch(
 );
 
 const totalFiltered = computed(() => filteredRowsWithIndex.value.length);
-const totalPages = computed(() => {
-  const total = Math.ceil(totalFiltered.value / pageSize.value) || 1;
-  return Math.max(1, total);
-});
-const pageStart = computed(() => (page.value - 1) * pageSize.value);
-const pageEnd = computed(() => pageStart.value + pageSize.value);
-const pagedRows = computed(() => filteredRowsWithIndex.value.slice(pageStart.value, pageEnd.value));
-const showingStart = computed(() => totalFiltered.value ? pageStart.value + 1 : 0);
-const showingEnd = computed(() => Math.min(totalFiltered.value, pageEnd.value));
 
 async function loadAndRender() {
   if (!svgRef.value) return;
@@ -243,20 +198,10 @@ async function loadAndRender() {
     const width = props.spec.layout?.width ?? 720;
     const height = props.spec.layout?.height ?? 420;
 
-    // Enforce a consistent preview frame size for all chart types
-    if (frameRef.value) {
-      frameRef.value.style.width = `${width}px`;
-      frameRef.value.style.height = `${height}px`;
-    }
-
     // Always size the built-in SVG; hidden for non-bar types
     const svg = svgRef.value;
-    if (svg) {
-      svg.setAttribute("width", String(width));
-      svg.setAttribute("height", String(height));
-      svg.style.width = '100%';
-      svg.style.height = '100%';
-    }
+    svg.setAttribute("width", String(width));
+    svg.setAttribute("height", String(height));
 
     await nextTick();
 
@@ -274,43 +219,7 @@ async function loadAndRender() {
         renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
       }
       renderBarChart(svg, props.spec, renderRows, { ...props.barConfig, numberFormat: props.barConfig?.numberFormat ?? '~s' });
-      renderChartTitle(svgRef.value, props.spec);
       status.value = "Rendered bar chart";
-    } else if (props.spec.type === 'bubble') {
-      svg.style.display = 'block';
-      renderBubbleChart(svg, props.spec, filteredRows.value || []);
-      renderChartTitle(svg, props.spec);
-      status.value = 'Rendered bubble chart';
-    } else if (props.spec.type === 'dotDonut') {
-      svg.style.display = 'block';
-      renderDotDonutChart(svg, props.spec, filteredRows.value || []);
-      renderChartTitle(svg, props.spec);
-      status.value = 'Rendered dot donut chart';
-    } else if (props.spec.type === 'orbitDonut') {
-      svg.style.display = 'block';
-      renderOrbitDonutChart(svg, props.spec, filteredRows.value || []);
-      renderChartTitle(svg, props.spec);
-      status.value = 'Rendered orbit donut chart';
-    } else if (props.spec.type === 'pie') {
-      svg.style.display = 'block';
-      renderPieDonutChart(svg, props.spec, filteredRows.value || [], props.pieConfig);
-      renderChartTitle(svg, props.spec);
-      status.value = 'Rendered pie chart';
-    } else if (props.spec.type === 'map') {
-      svg.style.display = 'block';
-      renderAfricaMap(svg, props.spec, filteredRows.value || [], props.mapConfig);
-      renderChartTitle(svg, props.spec);
-      status.value = 'Rendered Africa map';
-    } else if (props.spec.type === 'stackedBar') {
-      svg.style.display = 'block';
-      renderStackedBarChart(svg, props.spec, filteredRows.value || [], props.barConfig as any);
-      renderChartTitle(svg, props.spec);
-      status.value = 'Rendered stacked bar chart';
-    } else if (props.spec.type === 'scatter') {
-      svg.style.display = 'block';
-      renderScatterPlot(svg, props.spec, filteredRows.value || []);
-      renderChartTitle(svgRef.value, props.spec);
-      status.value = 'Rendered scatter plot';
     } else if (props.spec.type === "line") {
       // Hide the bar SVG and render line into the frame container
       svg.style.display = "none";
@@ -328,7 +237,7 @@ async function loadAndRender() {
         yType: 'linear',
         width,
         height,
-        margin: props.lineConfig?.margin ?? { top: 50, right: 24, bottom: 40, left: 52 },
+        margin: props.lineConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
         lineColor: props.lineConfig?.lineColor ?? '#2563eb',
         lineWidth: props.lineConfig?.lineWidth ?? 2,
         curveType: props.lineConfig?.curveType ?? 'linear',
@@ -356,8 +265,6 @@ async function loadAndRender() {
 
       const lineRows = filteredRows.value;
       lineChart = createLineChart(frameRef.value, lineRows, cfg);
-      const lineSvg = frameRef.value?.querySelector('svg') as SVGSVGElement | null;
-      renderChartTitle(lineSvg, props.spec);
       status.value = "Rendered line chart";
     } else if (props.spec.type === "area") {
       // Hide the bar SVG and render area into the frame container
@@ -375,9 +282,9 @@ async function loadAndRender() {
         yType: 'linear',
         width,
         height,
-        margin: props.areaConfig?.margin ?? { top: 50, right: 24, bottom: 40, left: 52 },
+        margin: props.areaConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
         responsive: true,
-        backgroundColor: undefined,
+        backgroundColor: props.spec.style?.background || 'transparent',
         xDomain: props.areaConfig?.xDomain,
         yDomain: props.areaConfig?.yDomain,
         yNice: true,
@@ -419,9 +326,40 @@ async function loadAndRender() {
 
       const areaRows = filteredRows.value;
       areaChart = drawAreaChart(frameRef.value, areaRows, cfg);
-      const areaSvg = frameRef.value?.querySelector('svg') as SVGSVGElement | null;
-      renderChartTitle(areaSvg, props.spec);
       status.value = "Rendered area chart";
+    } else if (props.spec.type === "dotDonut") {
+      svg.style.display = "block";
+      const seriesField = props.spec.encoding.series?.field;
+      let renderRows = filteredRows.value;
+      if (seriesField && props.selectedYears && props.selectedYears.length) {
+        renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
+      }
+      renderDotDonutChart(svg, props.spec, renderRows, props.dotDonutConfig);
+      status.value = "Rendered dot donut chart";
+    } else if (props.spec.type === "pie") {
+      svg.style.display = "block";
+      renderPieDonutChart(svg, props.spec, filteredRows.value, props.pieConfig);
+      status.value = "Rendered pie chart";
+    } else if (props.spec.type === "scatter") {
+      svg.style.display = "block";
+      renderScatterPlot(svg, props.spec, filteredRows.value, props.scatterConfig);
+      status.value = "Rendered scatter plot";
+    } else if (props.spec.type === "map") {
+      svg.style.display = "block";
+      renderAfricaMap(svg, props.spec, filteredRows.value, props.mapConfig);
+      status.value = "Rendered map";
+    } else if (props.spec.type === "bubble") {
+      svg.style.display = "block";
+      renderBubbleChart(svg, props.spec, filteredRows.value, props.bubbleConfig);
+      status.value = "Rendered bubble chart";
+    } else if (props.spec.type === "stackedBar") {
+      svg.style.display = "block";
+      renderStackedBarChart(svg, props.spec, filteredRows.value, props.stackedBarConfig);
+      status.value = "Rendered stacked bar chart";
+    } else if (props.spec.type === "orbitDonut") {
+      svg.style.display = "block";
+      renderOrbitDonutChart(svg, props.spec, filteredRows.value, props.orbitDonutConfig);
+      status.value = "Rendered orbit donut chart";
     } else {
       status.value = `Type ${props.spec.type} not yet wired`;
     }
@@ -478,22 +416,6 @@ watch(
   { deep: true }
 );
 
-watch(
-  () => props.mapConfig,
-  () => {
-    renderWithCurrentRows();
-  },
-  { deep: true }
-);
-
-watch(
-  () => props.pieConfig,
-  () => {
-    renderWithCurrentRows();
-  },
-  { deep: true }
-);
-
 // Only re-fetch when the bound data source changes
 watch(
   () => props.spec.data?.query?.source,
@@ -511,18 +433,7 @@ watch(
   { deep: true }
 );
 
-watch(totalPages, (next) => {
-  if (page.value > next) page.value = next;
-});
 
-watch(pageSize, () => {
-  page.value = 1;
-});
-
-function handleRefresh() {
-  emit("refresh");
-  loadAndRender();
-}
 
 function selectCell(rowIndex: number, column: string) {
   selectedRow.value = rowIndex;
@@ -530,71 +441,8 @@ function selectCell(rowIndex: number, column: string) {
   editValue.value = String((rows.value[rowIndex] as any)[column] ?? "");
 }
 
-function saveCell() {
-  if (selectedRow.value === null || !selectedColumn.value) return;
-  const row = rows.value[selectedRow.value];
-  if (!row) return;
-  const raw = editValue.value;
-  const asNumber = raw === "" ? "" : Number(raw);
-  (row as any)[selectedColumn.value] = Number.isFinite(asNumber) && raw.trim() !== "" ? asNumber : raw;
-  renderWithCurrentRows();
-}
-
-function addRow() {
-  const blank: Record<string, unknown> = {};
-  columns.value.forEach(c => { blank[c] = ""; });
-  rows.value = [...rows.value, blank];
-  renderWithCurrentRows();
-}
-
-function deleteSelectedRow() {
-  if (selectedRow.value === null) return;
-  rows.value = rows.value.filter((_, idx) => idx !== selectedRow.value);
-  selectedRow.value = null;
-  renderWithCurrentRows();
-}
-
-function addColumn() {
-  const name = newColumnName.value.trim();
-  if (!name || columns.value.includes(name)) return;
-  rows.value = rows.value.map(r => ({ ...r, [name]: "" }));
-  newColumnName.value = "";
-  emit("update:fields", columns.value);
-  renderWithCurrentRows();
-}
-
-
-
-
-function renameColumnAction() {
-  const from = renameFrom.value.trim();
-  const to = renameTo.value.trim();
-  if (!from || !to || from === to || !columns.value.includes(from)) return;
-  rows.value = rows.value.map(r => {
-    const { [from]: val, ...rest } = r;
-    return { ...rest, [to]: val } as Record<string, unknown>;
-  });
-  renameFrom.value = "";
-  renameTo.value = "";
-  emit("update:fields", columns.value);
-  renderWithCurrentRows();
-}
-
 function renderWithCurrentRows() {
   if (!svgRef.value) return;
-  // ensure preview frame size remains consistent when re-rendering
-  const enforcedWidth = props.spec.layout?.width ?? 720;
-  const enforcedHeight = props.spec.layout?.height ?? 420;
-  if (frameRef.value) {
-    frameRef.value.style.width = `${enforcedWidth}px`;
-    frameRef.value.style.height = `${enforcedHeight}px`;
-  }
-  if (svgRef.value) {
-    svgRef.value.setAttribute('width', String(enforcedWidth));
-    svgRef.value.setAttribute('height', String(enforcedHeight));
-    svgRef.value.style.width = '100%';
-    svgRef.value.style.height = '100%';
-  }
   if (props.spec.type === "bar") {
     const seriesField = props.spec.encoding.series?.field;
     let renderRows = filteredRows.value;
@@ -602,7 +450,6 @@ function renderWithCurrentRows() {
       renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
     }
     renderBarChart(svgRef.value, props.spec, renderRows, { ...props.barConfig, numberFormat: props.barConfig?.numberFormat ?? '~s' });
-    renderChartTitle(svgRef.value, props.spec);
   } else if (props.spec.type === "line" && frameRef.value) {
     if (lineChart) { lineChart.destroy(); lineChart = null; }
     const xKey = props.spec.encoding.category.field;
@@ -615,7 +462,7 @@ function renderWithCurrentRows() {
       yType: 'linear',
       width: props.spec.layout?.width ?? 720,
       height: props.spec.layout?.height ?? 420,
-      margin: props.lineConfig?.margin ?? { top: 50, right: 24, bottom: 40, left: 52 },
+      margin: props.lineConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
       lineColor: props.lineConfig?.lineColor ?? '#2563eb',
       lineWidth: props.lineConfig?.lineWidth ?? 2,
       curveType: props.lineConfig?.curveType ?? 'linear',
@@ -633,7 +480,6 @@ function renderWithCurrentRows() {
       animate: props.lineConfig?.animate ?? true,
       duration: props.lineConfig?.duration ?? 800,
       yDomain: props.lineConfig?.yDomain,
-      title: props.spec.title,
     };
     let lineRows = filteredRows.value;
     const seriesField = props.spec.encoding.series?.field;
@@ -641,8 +487,6 @@ function renderWithCurrentRows() {
       lineRows = lineRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
     }
     lineChart = createLineChart(frameRef.value, lineRows, cfg);
-    const lineSvg = frameRef.value?.querySelector('svg') as SVGSVGElement | null;
-    renderChartTitle(lineSvg, props.spec);
   } else if (props.spec.type === "area" && frameRef.value) {
     if (areaChart) { areaChart.destroy(); areaChart = null; }
     const xKey = props.spec.encoding.category.field;
@@ -655,9 +499,9 @@ function renderWithCurrentRows() {
       yType: 'linear',
       width: props.spec.layout?.width ?? 720,
       height: props.spec.layout?.height ?? 420,
-      margin: props.areaConfig?.margin ?? { top: 50, right: 24, bottom: 40, left: 52 },
+      margin: props.areaConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
       responsive: true,
-      backgroundColor: undefined,
+      backgroundColor: props.spec.style?.background || 'transparent',
       xDomain: props.areaConfig?.xDomain,
       yDomain: props.areaConfig?.yDomain,
       yNice: true,
@@ -690,7 +534,6 @@ function renderWithCurrentRows() {
       duration: props.areaConfig?.duration ?? 800,
       easing: undefined,
       sortData: props.areaConfig?.sortData ?? false,
-      title: props.spec.title,
     };
     let areaRows = filteredRows.value;
     const seriesField = props.spec.encoding.series?.field;
@@ -698,46 +541,37 @@ function renderWithCurrentRows() {
       areaRows = areaRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
     }
     areaChart = drawAreaChart(frameRef.value, areaRows, cfg);
-    const areaSvg = frameRef.value?.querySelector('svg') as SVGSVGElement | null;
-    renderChartTitle(areaSvg, props.spec);
-    } else if (props.spec.type === 'bubble') {
-      svgRef.value!.style.display = 'block';
-      renderBubbleChart(svgRef.value!, props.spec, filteredRows.value || []);
-      renderChartTitle(svgRef.value!, props.spec);
-    } else if (props.spec.type === 'dotDonut') {
-      svgRef.value!.style.display = 'block';
-      renderDotDonutChart(svgRef.value!, props.spec, filteredRows.value || []);
-      renderChartTitle(svgRef.value!, props.spec);
-    } else if (props.spec.type === 'orbitDonut') {
-      svgRef.value!.style.display = 'block';
-      renderOrbitDonutChart(svgRef.value!, props.spec, filteredRows.value || []);
-      renderChartTitle(svgRef.value!, props.spec);
-    } else if (props.spec.type === 'pie') {
-      svgRef.value!.style.display = 'block';
-      renderPieDonutChart(svgRef.value!, props.spec, filteredRows.value || [], props.pieConfig);
-      renderChartTitle(svgRef.value!, props.spec);
-    } else if (props.spec.type === 'map') {
-      svgRef.value!.style.display = 'block';
-      renderAfricaMap(svgRef.value!, props.spec, filteredRows.value || [], props.mapConfig);
-      renderChartTitle(svgRef.value!, props.spec);
-    } else if (props.spec.type === 'stackedBar') {
-      svgRef.value!.style.display = 'block';
-      renderStackedBarChart(svgRef.value!, props.spec, filteredRows.value || [], props.barConfig as any);
-      renderChartTitle(svgRef.value!, props.spec);
-    } else if (props.spec.type === 'scatter') {
-      svgRef.value!.style.display = 'block';
-      renderScatterPlot(svgRef.value!, props.spec, filteredRows.value || []);
-      renderChartTitle(svgRef.value!, props.spec);
+  } else if (props.spec.type === "dotDonut" && svgRef.value) {
+    const seriesField = props.spec.encoding.series?.field;
+    let renderRows = filteredRows.value;
+    if (seriesField && props.selectedYears && props.selectedYears.length) {
+      renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
     }
+    renderDotDonutChart(svgRef.value, props.spec, renderRows, props.dotDonutConfig);
+  } else if (props.spec.type === "pie" && svgRef.value) {
+    renderPieDonutChart(svgRef.value, props.spec, filteredRows.value, props.pieConfig);
+  } else if (props.spec.type === "scatter" && svgRef.value) {
+    renderScatterPlot(svgRef.value, props.spec, filteredRows.value, props.scatterConfig);
+  } else if (props.spec.type === "map" && svgRef.value) {
+    renderAfricaMap(svgRef.value, props.spec, filteredRows.value, props.mapConfig);
+  } else if (props.spec.type === "bubble" && svgRef.value) {
+    renderBubbleChart(svgRef.value, props.spec, filteredRows.value, props.bubbleConfig);
+  } else if (props.spec.type === "stackedBar" && svgRef.value) {
+    renderStackedBarChart(svgRef.value, props.spec, filteredRows.value, props.stackedBarConfig);
+  } else if (props.spec.type === "orbitDonut" && svgRef.value) {
+    renderOrbitDonutChart(svgRef.value, props.spec, filteredRows.value, props.orbitDonutConfig);
+  }
 }
 
 defineExpose({
+  rows,
   getSvgEl: () => {
-    if (props.spec.type === 'bar' || props.spec.type === 'bubble' || props.spec.type === 'dotDonut' || props.spec.type === 'orbitDonut' || props.spec.type === 'pie' || props.spec.type === 'map' || props.spec.type === 'stackedBar' || props.spec.type === 'scatter') return svgRef.value;
-    return frameRef.value?.querySelector('svg') as SVGSVGElement | null;
+    if (props.spec.type === 'line' || props.spec.type === 'area') {
+      return frameRef.value?.querySelector('svg') as SVGSVGElement | null;
+    }
+    return svgRef.value;
   },
   reload: loadAndRender,
-  rows: rows,
 });
 
 onBeforeUnmount(() => {
@@ -747,84 +581,69 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="panel preview">
-    <header class="panel__header">
-      <div>
-        <p class="eyebrow">Step 3</p>
-        <h2 class="panel__title">Live preview</h2>
-        <p class="muted">Rendering powered by D3.</p>
+  <section class="preview">
+    <header class="preview__header">
+      <div class="preview__info">
+        <h2 class="preview__title">{{ spec.title || "Untitled Chart" }}</h2>
+        <p class="preview__subtitle">Live preview • {{ spec.type.charAt(0).toUpperCase() + spec.type.slice(1) }}</p>
       </div>
-      <button type="button" class="btn" @click="handleRefresh">Refresh preview</button>
+      <div class="preview__header-actions">
+        <div class="preview__palette">
+          <span v-for="(color, idx) in spec.style?.palette?.slice(0, 5) ?? []" :key="idx" class="palette-dot" :style="{ backgroundColor: color }"></span>
+        </div>
+        <button 
+          type="button" 
+          class="preview__refresh-btn btn btn--sm btn--primary" 
+          @click="loadAndRender"
+        >
+          <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+          <span>Refresh Preview</span>
+        </button>
+      </div>
     </header>
 
     <div class="preview__surface">
-        <div class="preview__meta">
-          <div>
-            <p class="label">Type</p>
-            <p class="value">{{ spec.type }}</p>
-          </div>
-          <div>
-            <p class="label">Layout</p>
-            <p class="value">{{ spec.layout?.preset ?? 'single' }}</p>
-          </div>
-        </div>
-      <!-- removed global overlay; filter card will be placed inside the data panel -->
-      <div class="preview__frame" ref="frameRef" :style="{ background: spec.style?.background || '#ffffff' }">
-        <svg ref="svgRef"></svg>
+      <div class="preview__status-bar" v-if="status || error">
+        <p v-if="status" class="status-text">{{ status }}</p>
+        <p v-if="error" class="alert-text">{{ error }}</p>
       </div>
-      <p class="muted" v-if="status">{{ status }}</p>
-      <p class="alert" v-if="error">{{ error }}</p>
+
+
+      <div 
+        class="preview__frame-wrapper"
+        :style="{ 
+          width: (spec.layout?.width || 720) + 'px', 
+          height: (spec.layout?.height || 420) + 'px' 
+        }"
+      >
+        <div 
+          class="preview__frame" 
+          ref="frameRef"
+          :style="{ backgroundColor: spec.style?.background || '#ffffff' }"
+        >
+          <svg 
+            ref="svgRef" 
+            :width="spec.layout?.width ?? 720" 
+            :height="spec.layout?.height ?? 420"
+          ></svg>
+        </div>
+      </div>
     </div>
 
     <div class="preview__footer" v-if="lastValidated">
       <p class="status">{{ lastValidated }}</p>
     </div>
 
-    <section class="panel w-full" style="margin-top: 16px; position: relative;">
+    <section class="panel" style="margin-top: 16px;">
       <header class="panel__header">
         <div>
           <p class="eyebrow">Data</p>
           <h3 class="panel__title">Preview & edit</h3>
-          <p class="muted">Filter and changes immediately re-render the chart.</p>
+          <p class="muted">Click a cell to edit; changes immediately re-render the chart.</p>
         </div>
       </header>
-
-      <!-- Filter card anchored to the top-left of the data panel -->
-      <div v-if="openFilterCol" class="data-panel-filter">
-        <div class="data-filter-card">
-          <div style="display:flex; gap:12px; align-items:flex-start;">
-            <div style="min-width:180px;">
-              <label class="form-field">
-                <span>Column</span>
-                <select v-model="openFilterCol">
-                  <option v-for="col in columns" :key="col" :value="col">{{ col }}</option>
-                </select>
-              </label>
-            </div>
-            <div style="flex:1;">
-              <div class="form-field">
-                <span style="font-size:12px; color:#64748b">Search</span>
-                <input type="text" v-model="valueFilterSearch" placeholder="Search values" />
-              </div>
-              <div style="max-height: 220px; overflow:auto; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px; margin-top: 6px; background:white;">
-                <label style="display:flex; align-items:center; gap:8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
-                  <input type="checkbox" :checked="openFilterCol ? tempSelection.size === uniqueValuesFor(openFilterCol).length : false" @change="toggleTempAll(($event.target as HTMLInputElement).checked)" />
-                  <span>(Select All)</span>
-                </label>
-                <label v-for="val in visibleFilterValues" :key="val" style="display:flex; align-items:center; gap:8px; padding: 4px 0;">
-                  <input type="checkbox" :checked="tempSelection.has(val)" @change="toggleTempValue(val, ($event.target as HTMLInputElement).checked)" />
-                  <span>{{ val }}</span>
-                </label>
-              </div>
-              <div class="pill-group" style="margin-top: 8px; display:flex; justify-content: flex-end; gap: 8px;">
-                <button class="pill" type="button" @click="clearValueFilter(openFilterCol)">Clear</button>
-                <button class="pill" type="button" @click="openFilterCol = null">Cancel</button>
-                <button class="pill" type="button" @click="applyValueFilter">OK</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <div
         class="form-grid"
@@ -851,7 +670,7 @@ onBeforeUnmount(() => {
         </label>
       </div>
       <div class="data-table" v-if="columns.length" style="margin-top: 12px; overflow:auto; max-height: 700px; border: 1px solid #e2e8f0; border-radius: 8px; position: relative;">
-        <table class="w-full border-collapse">
+        <table style="width: 100%; border-collapse: collapse;">
           <thead>
             <tr>
               <th style="position: sticky; top: 0; z-index: 6; background: #f8fafc; text-align: left; padding: 8px; border-bottom: 1px solid #e2e8f0;">#</th>
@@ -869,7 +688,7 @@ onBeforeUnmount(() => {
                     {{ isColFiltered(col) ? 'Filter*' : 'Filter' }}
                   </button>
                   <div
-                    v-if="false"
+                    v-if="openFilterCol === col"
                     :style="{
                       position: 'absolute',
                       zIndex: 60,
@@ -910,11 +729,11 @@ onBeforeUnmount(() => {
           </thead>
           <tbody>
             <tr
-              v-for="({ row, index: originalIndex }, rIdx) in pagedRows"
+              v-for="({ row, index: originalIndex }, rIdx) in filteredRowsWithIndex"
               :key="originalIndex"
               :style="{ background: selectedRow === originalIndex ? '#eef2ff' : 'white' }"
             >
-              <td style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; color: #94a3b8;">{{ pageStart + rIdx + 1 }}</td>
+              <td style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; color: #94a3b8;">{{ rIdx + 1 }}</td>
               <td
                 v-for="col in columns"
                 :key="col"
@@ -927,27 +746,8 @@ onBeforeUnmount(() => {
           </tbody>
         </table>
       </div>
-      <div v-if="columns.length" class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: center; gap: 12px; margin-top: 8px;">
-        <div class="pill-group">
-          <button class="pill" type="button" @click="page = 1" :disabled="page === 1 || !rows.length">« First</button>
-          <button class="pill" type="button" @click="page = Math.max(1, page - 1)" :disabled="page === 1 || !rows.length">‹ Prev</button>
-          <button class="pill" type="button" @click="page = Math.min(totalPages, page + 1)" :disabled="page === totalPages || !rows.length">Next ›</button>
-          <button class="pill" type="button" @click="page = totalPages" :disabled="page === totalPages || !rows.length">Last »</button>
-        </div>
-        <div>
-          <p class="muted">Showing {{ showingStart }}–{{ showingEnd }} of {{ totalFiltered }} rows</p>
-        </div>
-        <div class="form-field">
-          <span>Rows per page</span>
-          <select v-model.number="pageSize">
-            <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }}</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <span>Page</span>
-          <input type="number" min="1" :max="totalPages" v-model.number="page" />
-          <p class="muted">of {{ totalPages }}</p>
-        </div>
+      <div v-if="columns.length" style="padding-top: 12px; border-top: 1px solid #f1f5f9; margin-top: 8px;">
+        <p class="muted">Showing all {{ totalFiltered }} rows</p>
       </div>
       <p v-else class="muted">No rows loaded yet.</p>
     </section>
@@ -955,65 +755,110 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.preview__frame {
+.preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+.preview__header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+}
+
+.preview__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.preview__subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 4px 0 0 0;
+}
+
+.preview__palette {
+  display: flex;
+  gap: 6px;
+}
+.palette-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.preview__surface {
+  flex: 1;
+  padding: 40px;
+  background: #f1f5f9;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: auto;
+  position: relative;
+}
+
+.preview__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.preview__status-bar {
+  margin-bottom: 12px;
+}
+.status-text {
+  font-size: 12px;
+  color: #0ea5e9;
+  margin: 0;
+}
+.alert-text {
+  font-size: 12px;
+  color: #ef4444;
+  margin: 0;
+}
+
+.preview__frame-wrapper {
+  flex: 0 0 auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  overflow: hidden;
-  /* allow max-width responsiveness but prefer enforced px size */
-  max-width: 100%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
 }
-.preview__frame svg {
-  display: block;
+
+.preview__frame {
   width: 100%;
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-</style>
-
-<style scoped>
-.panel.preview { position: relative; }
-.global-filter-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 220;
-  pointer-events: none;
+.preview__footer {
+  padding: 12px 24px;
+  border-top: 1px solid #f1f5f9;
+  background: #f8fafc;
 }
-.global-filter-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.16);
-}
-.global-filter-card {
-  position: absolute;
-  top: 8px; /* align to parent view top */
-  left: 50%;
-  transform: translateX(-50%);
-  pointer-events: auto;
-  width: min(900px, 96%);
-  background: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  padding: 12px;
-  box-shadow: 0 12px 32px rgba(2,6,23,0.12);
+.status {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 0;
 }
 
-/* Filter card anchored to the top-left of the Preview & edit (data) panel */
-.data-panel-filter {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 160;
-  pointer-events: auto;
-  width: min(780px, 92%);
+.data-table {
+  background: white;
 }
-.data-filter-card {
-  background: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  padding: 12px;
-  box-shadow: 0 8px 24px rgba(2,6,23,0.10);
-}
-
 </style>

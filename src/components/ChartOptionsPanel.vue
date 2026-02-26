@@ -43,86 +43,77 @@ function updateStyle(key: keyof Style, value: unknown) {
 </script>
 
 <template>
-  <section class="panel">
-    <header class="panel__header">
-      <div>
-        <p class="eyebrow">Step 2</p>
-        <h2 class="panel__title">Configure options</h2>
-      </div>
-    </header>
+  <div class="form-grid">
+    <label class="form-field" style="grid-column: 1 / -1;">
+      <span>Chart title</span>
+      <input
+        type="text"
+        placeholder="Enter chart title..."
+        :value="title"
+        @input="emit('update:title', ($event.target as HTMLInputElement).value)"
+      />
+    </label>
 
-    <div class="form-grid">
-      <label class="form-field" style="grid-column: 1 / -1;">
-        <span>Chart title</span>
-        <input
-          type="text"
-          placeholder="Enter chart title..."
-          :value="title"
-          @input="emit('update:title', ($event.target as HTMLInputElement).value)"
-        />
-      </label>
+    <label class="form-field">
+      <span>Layout preset</span>
+      <select
+        :value="layout?.preset ?? 'single'"
+        @change="updateLayout('preset', ($event.target as HTMLSelectElement).value)">
+        <option v-for="preset in layoutPresets" :key="preset" :value="preset">{{ preset }}</option>
+      </select>
+    </label>
 
-      <label class="form-field">
-        <span>Layout preset</span>
-        <select
-          :value="layout?.preset ?? 'single'"
-          @change="updateLayout('preset', ($event.target as HTMLSelectElement).value)">
-          <option v-for="preset in layoutPresets" :key="preset" :value="preset">{{ preset }}</option>
-        </select>
-      </label>
+    <label class="form-field">
+      <span>Width (px)</span>
+      <input
+        type="number"
+        min="320"
+        :value="layout?.width ?? ''"
+        @input="updateLayout('width', Number(($event.target as HTMLInputElement).value) || undefined)"
+      />
+    </label>
 
-      <label class="form-field">
-        <span>Width (px)</span>
-        <input
-          type="number"
-          min="320"
-          :value="layout?.width ?? ''"
-          @input="updateLayout('width', Number(($event.target as HTMLInputElement).value) || undefined)"
-        />
-      </label>
+    <label class="form-field">
+      <span>Height (px)</span>
+      <input
+        type="number"
+        min="200"
+        :value="layout?.height ?? ''"
+        @input="updateLayout('height', Number(($event.target as HTMLInputElement).value) || undefined)"
+      />
+    </label>
 
-      <label class="form-field">
-        <span>Height (px)</span>
-        <input
-          type="number"
-          min="200"
-          :value="layout?.height ?? ''"
-          @input="updateLayout('height', Number(($event.target as HTMLInputElement).value) || undefined)"
-        />
-      </label>
-
-      <div class="form-field" style="grid-column: 1 / -1;">
-        <span>Background color</span>
-        <div class="color-swatch-grid">
-          <button
-            v-for="color in backgroundPresets"
-            :key="color"
-            type="button"
-            class="color-swatch"
-            :class="{ 'is-active': style?.background === color }"
-            :style="{ backgroundColor: color }"
-            @click="updateStyle('background', color)"
-            :title="color"
-          ></button>
-          
-          <div class="custom-color-trigger">
-            <input
-              type="color"
-              :value="style?.background || '#ffffff'"
-              @input="updateStyle('background', ($event.target as HTMLInputElement).value)"
-              class="color-input-hidden"
-              id="bg-custom-color"
-            />
-            <label for="bg-custom-color" class="color-swatch custom-trigger" title="Custom color">
-              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
-                <path d="M12 5v14M5 12h14"></path>
-              </svg>
-            </label>
-          </div>
+    <div class="form-field" style="grid-column: 1 / -1;">
+      <span>Background color</span>
+      <div class="color-swatch-grid">
+        <button
+          v-for="color in backgroundPresets"
+          :key="color"
+          type="button"
+          class="color-swatch"
+          :class="{ 'is-active': style?.background === color }"
+          :style="{ backgroundColor: color }"
+          @click="updateStyle('background', color)"
+          :title="color"
+        ></button>
+        
+        <div class="custom-color-trigger">
+          <input
+            type="color"
+            :value="style?.background || '#ffffff'"
+            @input="updateStyle('background', ($event.target as HTMLInputElement).value)"
+            class="color-input-hidden"
+            id="bg-custom-color"
+          />
+          <label for="bg-custom-color" class="color-swatch custom-trigger" title="Custom color">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+              <path d="M12 5v14M5 12h14"></path>
+            </svg>
+          </label>
         </div>
       </div>
     </div>
-  </section>
+  </div>
 </template>
 
 <style scoped>

@@ -30,14 +30,6 @@ export function renderStackedBarChart(
     const svg = d3.select(svgEl);
     const width = Number(svg.attr('width')) || 800;
     const height = Number(svg.attr('height')) || 450;
-    const margin = { top: 40, right: 150, bottom: 50, left: 60 };
-    const innerWidth = width - margin.left - margin.right;
-    const innerHeight = height - margin.top - margin.bottom;
-
-    svg.selectAll("*").remove();
-
-    const g = svg.append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
 
     // 1. Prepare Data (Long to Wide for d3.stack)
     const seriesSet = new Set<string>();
@@ -62,31 +54,82 @@ export function renderStackedBarChart(
 
     const stackedData = stack(pivoted);
 
-    // 3. Scales
     const x = d3.scaleBand()
         .domain(categories)
-        .range([0, innerWidth])
+        .range([0, 100]) // temporary range
         .padding(barPadding);
 
     const y = d3.scaleLinear()
         .domain([0, d3.max(pivoted, d => subgroups.reduce((sum, key) => sum + (d[key] || 0), 0)) || 0])
         .nice()
-        .range([innerHeight, 0]);
+        .range([100, 0]); // temporary range
 
     const palette = spec.style?.palette ?? d3.schemeTableau10;
     const color = d3.scaleOrdinal<string>()
         .domain(subgroups)
         .range(palette);
 
-    // 4. Axes
+    // 4. Dynamic Margins calculation
+    const tempSvg = svg.append('svg').style('visibility', 'hidden').style('position', 'absolute');
+    const tempText = tempSvg.append('text').style('font-size', '10px').style('font-family', 'sans-serif');
+
+    // Left margin based on Y-axis labels
+    let maxYLabelWidth = 0;
+    const yTicks = y.ticks();
+    yTicks.forEach(tick => {
+        tempText.text(tick);
+        const bbox = (tempText.node() as SVGTextElement).getBBox();
+        if (bbox.width > maxYLabelWidth) maxYLabelWidth = bbox.width;
+    });
+    const dynamicMarginLeft = Math.max(60, maxYLabelWidth + 20);
+
+    // Right margin based on Legend or right-most X-axis label
+    let dynamicMarginRight = 30;
+    if (showLegend && subgroups.length > 0) {
+        let maxLegendWidth = 0;
+        tempText.style('font-size', '12px');
+        subgroups.forEach(key => {
+            tempText.text(key);
+            const bbox = (tempText.node() as SVGTextElement).getBBox();
+            if (bbox.width > maxLegendWidth) maxLegendWidth = bbox.width;
+        });
+        // 20px padding + 15px color box + max text width + padding
+        dynamicMarginRight = Math.max(150, 20 + 15 + maxLegendWidth + 20);
+    } else {
+        const lastXDomain = categories[categories.length - 1];
+        let maxXLabelWidth = 0;
+        if (lastXDomain !== undefined) {
+            tempText.text(String(lastXDomain));
+            maxXLabelWidth = (tempText.node() as SVGTextElement).getBBox().width;
+        }
+        dynamicMarginRight = Math.max(30, maxXLabelWidth / 2 + 10);
+    }
+
+    tempSvg.remove();
+
+    const margin = { top: 40, right: dynamicMarginRight, bottom: 50, left: dynamicMarginLeft };
+    const innerWidth = width - margin.left - margin.right;
+    const innerHeight = height - margin.top - margin.bottom;
+
+    // Update ranges with actual inner dimensions
+    x.range([0, innerWidth]);
+    y.range([innerHeight, 0]);
+
+    svg.selectAll("*").remove();
+
+    const g = svg.append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    // 5. Axes
     g.append("g")
         .attr("transform", `translate(0,${innerHeight})`)
         .call(d3.axisBottom(x));
 
     g.append("g")
+        .attr("class", "axis--y")
         .call(d3.axisLeft(y));
 
-    // 5. Tooltip
+    // 6. Tooltip
     let tooltip: any;
     if (showTooltip) {
         tooltip = d3.select("body").selectAll(".chart-tooltip").data([0]);
@@ -105,7 +148,7 @@ export function renderStackedBarChart(
             .merge(tooltip);
     }
 
-    // 6. Bars
+    // 7. Bars
     const layer = g.selectAll(".layer")
         .data(stackedData)
         .join("g")
@@ -141,10 +184,12 @@ export function renderStackedBarChart(
 
     bars.transition()
         .duration(animationDuration)
-        .attr("y", d => y(d[1]))
-        .attr("height", d => y(d[0]) - y(d[1]));
+        .attr("y", (d: any) => y(d[1]))
+        .attr("height", (d: any) => y(d[0]) - y(d[1]));
 
-    // 7. Legend
+    const fmt = d3.format(",.2~f");
+
+    // 8. Legend
     if (showLegend) {
         const legend = g.append("g")
             .attr("class", "legend")
@@ -167,8 +212,6 @@ export function renderStackedBarChart(
                 .text(key);
         });
     }
-
-    const fmt = d3.format(",.2~f");
 
     // Expose update function
     (svgEl as any).updateChart = function (newData: any[]) {

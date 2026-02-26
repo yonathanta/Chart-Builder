@@ -56,41 +56,30 @@ function onClick(tile: Tile) {
 </script>
 
 <template>
-  <section class="panel">
-    <header class="panel__header">
-      <div>
-        <p class="eyebrow">Step 1</p>
-        <h2 class="panel__title">Select chart type</h2>
-      </div>
-    </header>
-    <div class="type-grid">
-      <button
-        v-for="tile in tiles"
-        :key="tile.key"
-        class="type-tile"
-        :class="{ 'type-tile--active': tile.type !== 'unsupported' && tile.type === selected, 'type-tile--disabled': !tile.enabled || tile.type === 'unsupported' }"
-        type="button"
-        :title="tile.enabled ? tile.label : tile.label + ' (coming soon)'"
-        @click="onClick(tile)"
-      >
-        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
-          <path :d="tile.icon" fill="#0ea5b7"></path>
-        </svg>
-        <span class="type-tile__label">{{ tile.label }}</span>
-      </button>
-    </div>
-  </section>
-  
+  <div class="type-grid">
+    <button
+      v-for="tile in tiles"
+      :key="tile.key"
+      class="type-tile"
+      :class="{ 'type-tile--active': tile.type !== 'unsupported' && tile.type === selected, 'type-tile--disabled': !tile.enabled || tile.type === 'unsupported' }"
+      type="button"
+      :title="tile.enabled ? tile.label : tile.label + ' (coming soon)'"
+      @click="onClick(tile)"
+    >
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+        <path :d="tile.icon" fill="#0ea5b7"></path>
+      </svg>
+      <span class="type-tile__label">{{ tile.label }}</span>
+    </button>
+  </div>
 </template>
 
 <style scoped>
 .type-grid {
   display: grid;
-  /* Force two columns and constrain overall width to fit them cleanly */
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
-  gap: 12px;
-  max-width: 240px;
-  margin: 0 auto;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  width: 100%;
 }
 .type-tile {
   display: flex;
@@ -98,25 +87,34 @@ function onClick(tile: Tile) {
   align-items: center;
   justify-content: center;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 12px 8px;
+  border-radius: 8px;
+  padding: 12px 4px;
   background: #ffffff;
   color: #0f172a;
   box-sizing: border-box;
   width: 100%;
-  /* Keep tiles visually consistent when switching types */
-  min-height: 84px;
+  min-height: 72px;
+  cursor: pointer;
+  transition: all 0.2s;
 }
-.type-tile:hover { box-shadow: 0 0 0 2px #0891b220; }
-.type-tile--active { box-shadow: 0 0 0 2px #0ea5b7; border-color: #0ea5b7; }
-.type-tile--disabled { opacity: 0.45; cursor: not-allowed; }
-.type-tile__label { margin-top: 6px; font-size: 13px; }
-
-/* Responsive: collapse to single column on narrow viewports */
-@media (max-width: 420px) {
-  .type-grid {
-    grid-template-columns: 1fr;
-    max-width: 320px;
-  }
+.type-tile:hover:not(.type-tile--disabled) { 
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+.type-tile--active { 
+  background: #f0f9ff;
+  border-color: #0ea5b7;
+  box-shadow: 0 0 0 1px #0ea5b7;
+}
+.type-tile--disabled { 
+  opacity: 0.45; 
+  cursor: not-allowed; 
+}
+.type-tile__label { 
+  margin-top: 6px; 
+  font-size: 11px; 
+  font-weight: 500;
+  text-align: center;
+  line-height: 1.2;
 }
 </style>
