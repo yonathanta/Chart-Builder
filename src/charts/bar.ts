@@ -45,6 +45,8 @@ export type BuilderBarConfig = {
   labelFontWeight?: 'normal' | 'bold';
   labelFontColor?: string;
   overlays?: BarOverlay[];
+  labelOffset?: number;
+  labelPositionMode?: 'auto' | 'inside' | 'outside';
 };
 
 export type BarOverlay = {
@@ -134,6 +136,8 @@ export function renderBarChart(
     labelFontWeight: config.labelFontWeight ?? 'normal',
     labelFontColor: config.labelFontColor ?? '#333333',
     overlays: config.overlays ?? [],
+    labelOffset: config.labelOffset ?? 6,
+    labelPositionMode: config.labelPositionMode ?? 'auto'
   };
 
   /* ============================
@@ -796,6 +800,8 @@ export function renderBarChart(
       const bw = barWidth(d) as number;
       const bx = barX(d) as number;
       const dist = cfg.labelDistance;
+      const offset = cfg.labelOffset;
+      const mode_pos = cfg.labelPositionMode;
 
       if (cfg.labelPosition === 'inside') {
         return bx + bw / 2;
@@ -805,17 +811,33 @@ export function renderBarChart(
         const cx = bx + bw / 2;
         if (cfg.labelPosition === 'left') return bx - dist;
         if (cfg.labelPosition === 'right') return bx + bw + dist;
+
+        // Vertical Diverging/Tip logic
+        const tipY = v >= 0 ? bx : bx + bw; // Not quite tipX, but center X
         return cx;
       } else {
-        // Horizontal
+        // Horizontal Diverging Logic
+        const zeroX = valueLinear(0);
         const tipX = v >= 0 ? bx + bw : bx;
+
+        if (mode_pos === 'outside' || (mode_pos === 'auto')) {
+          return v >= 0 ? tipX + offset : tipX - offset;
+        } else if (mode_pos === 'inside') {
+          // Inside but not crossing zero
+          const target = v >= 0 ? tipX - offset : tipX + offset;
+          // Clamp to ensure it doesn't cross the zero axis
+          if (v >= 0) return Math.max(zeroX + 2, target);
+          return Math.min(zeroX - 2, target);
+        }
+
+        // Fallback for other labelPosition legacy values
         if (cfg.labelPosition === 'top') return tipX + (v >= 0 ? dist : -dist);
         if (cfg.labelPosition === 'bottom') return valueLinear(0) + (v >= 0 ? -dist : dist);
         if (cfg.labelPosition === 'right') return (v >= 0 ? bx + bw : valueLinear(0)) + dist;
         if (cfg.labelPosition === 'left') return (v >= 0 ? valueLinear(0) : bx) - dist;
-        // Default (relative to tip)
-        const offset = v >= 0 ? dist : -dist;
-        return tipX + offset;
+
+        const defOffset = v >= 0 ? dist : -dist;
+        return tipX + defOffset;
       }
     })
     .attr('y', d => {
@@ -823,20 +845,31 @@ export function renderBarChart(
       const bh = barHeight(d) as number;
       const by = barY(d) as number;
       const dist = cfg.labelDistance;
+      const offset = cfg.labelOffset;
+      const mode_pos = cfg.labelPositionMode;
 
       if (cfg.labelPosition === 'inside') {
         return by + bh / 2 + cfg.labelFontSize / 3;
       }
 
       if (orientation === 'vertical') {
+        const zeroY = valueLinear(0);
         const tipY = v >= 0 ? by : by + bh;
-        const centerY = by + bh / 2;
-        if (cfg.labelPosition === 'left' || cfg.labelPosition === 'right') return centerY + cfg.labelFontSize / 3;
+
+        if (mode_pos === 'outside' || (mode_pos === 'auto')) {
+          return v >= 0 ? tipY - offset : tipY + offset + cfg.labelFontSize * 0.7;
+        } else if (mode_pos === 'inside') {
+          const target = v >= 0 ? tipY + offset + cfg.labelFontSize * 0.7 : tipY - offset;
+          if (v >= 0) return Math.min(zeroY - 2, target);
+          return Math.max(zeroY + 2, target);
+        }
+
+        if (cfg.labelPosition === 'left' || cfg.labelPosition === 'right') return (by + bh / 2) + cfg.labelFontSize / 3;
         if (cfg.labelPosition === 'top') return v >= 0 ? by - dist : by + bh + dist + cfg.labelFontSize * 0.8;
         if (cfg.labelPosition === 'bottom') return v >= 0 ? valueLinear(0) + dist + cfg.labelFontSize * 0.8 : valueLinear(0) - dist;
-        // Default (relative to tip)
-        const offset = v >= 0 ? dist : -(dist + cfg.labelFontSize * 0.8);
-        return tipY - offset;
+
+        const defOffset = v >= 0 ? dist : -(dist + cfg.labelFontSize * 0.8);
+        return tipY - defOffset;
       } else {
         // Horizontal
         const cy = (categoryBand(d[categoryKey]) ?? 0) + (mode === 'grouped' && seriesKey ? (seriesBand(d[seriesKey]) ?? 0) + seriesBand.bandwidth() / 2 : categoryBand.bandwidth() / 2);
@@ -844,15 +877,26 @@ export function renderBarChart(
       }
     })
     .attr('text-anchor', d => {
+      const v = Number(d[valueKey]);
+      const mode_pos = cfg.labelPositionMode;
+
       if (cfg.labelPosition === 'inside') return 'middle';
+
       if (orientation === 'vertical') {
         if (cfg.labelPosition === 'left') return 'end';
         if (cfg.labelPosition === 'right') return 'start';
         return 'middle';
       } else {
-        const v = Number(d[valueKey]);
+        // Horizontal Diverging Text Anchor
+        if (mode_pos === 'outside' || mode_pos === 'auto') {
+          return v >= 0 ? 'start' : 'end';
+        } else if (mode_pos === 'inside') {
+          return v >= 0 ? 'end' : 'start';
+        }
+
         if (cfg.labelPosition === 'top') return v >= 0 ? 'start' : 'end';
         if (cfg.labelPosition === 'bottom') return v >= 0 ? 'end' : 'start';
+
         if (v >= 0) {
           if (cfg.labelPosition === 'left') return 'end';
           return 'start';

@@ -46,6 +46,8 @@ export type BarBuilderConfig = {
   labelFontWeight: 'normal' | 'bold';
   labelFontColor: string;
   overlays: BarOverlay[];
+  labelOffset: number;
+  labelPositionMode: "auto" | "inside" | "outside";
 };
 
 export type BarOverlay = {
@@ -262,6 +264,16 @@ const labelFontWeight = computed({
 const labelFontColor = computed({
   get: () => props.config.labelFontColor ?? '#333333',
   set: (v: string) => emit("update:config", { ...props.config, labelFontColor: v }),
+});
+
+const labelOffset = computed({
+  get: () => props.config.labelOffset ?? 6,
+  set: (v: number) => emit("update:config", { ...props.config, labelOffset: v }),
+});
+
+const labelPositionMode = computed({
+  get: () => props.config.labelPositionMode ?? "auto",
+  set: (v: "auto" | "inside" | "outside") => emit("update:config", { ...props.config, labelPositionMode: v }),
 });
 
 // updateOverlays removed as it's currently unused
@@ -525,6 +537,29 @@ const labelFontColor = computed({
         @input="xLabelRotation = Number(($event.target as HTMLInputElement).value)"
       />
       <small class="muted">{{ xLabelRotation }} deg</small>
+    </label>
+
+    <div class="form-field">
+      <span>Diverging Label Position</span>
+      <div class="pill-group">
+        <button type="button" class="pill" :class="{ 'pill--active': labelPositionMode === 'auto' }" @click="labelPositionMode = 'auto'">Auto</button>
+        <button type="button" class="pill" :class="{ 'pill--active': labelPositionMode === 'inside' }" @click="labelPositionMode = 'inside'">Inside</button>
+        <button type="button" class="pill" :class="{ 'pill--active': labelPositionMode === 'outside' }" @click="labelPositionMode = 'outside'">Outside</button>
+      </div>
+      <small class="muted">For diverging charts (positive/negative values).</small>
+    </div>
+
+    <label class="form-field">
+      <span>Label Offset (diverging) (px)</span>
+      <input
+        type="range"
+        min="2"
+        max="40"
+        step="1"
+        :value="labelOffset"
+        @input="labelOffset = Number(($event.target as HTMLInputElement).value)"
+      />
+      <small class="muted">{{ labelOffset }} px</small>
     </label>
 
     <label class="form-field">
