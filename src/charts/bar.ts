@@ -235,9 +235,22 @@ export function renderBarChart(
     }
   }
 
-  const margin = { top: 60, right: dynamicMarginRight, bottom: 60, left: dynamicMarginLeft };
+  const margin = { top: spec.title ? 75 : 60, right: dynamicMarginRight, bottom: 60, left: dynamicMarginLeft };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
+
+  // Render Title
+  if (spec.title) {
+    svg.append('text')
+      .attr('class', 'chart-title')
+      .attr('x', width / 2)
+      .attr('y', 25)
+      .attr('text-anchor', 'middle')
+      .style('font-size', '18px')
+      .style('font-weight', 'bold')
+      .style('fill', '#374151')
+      .text(spec.title);
+  }
 
   const root = svg
     .attr('width', width)
@@ -295,17 +308,6 @@ export function renderBarChart(
     .join('g')
     .attr('class', 'overlays');
 
-  // Compact number formatter for display (labels + tooltip)
-  const humanizeValue = (val: unknown) => {
-    const num = Number(val);
-    if (!Number.isFinite(num)) return String(val ?? '');
-    const abs = Math.abs(num);
-    const fmt = (n: number, suffix: string) => `${+(n.toFixed(1))}${suffix}`;
-    if (abs >= 1_000_000_000) return fmt(num / 1_000_000_000, 'B');
-    if (abs >= 1_000_000) return fmt(num / 1_000_000, 'M');
-    if (abs >= 1_000) return fmt(num / 1_000, 'K');
-    return `${num}`;
-  };
 
   // Tooltip element for hover; remove any existing tooltip to avoid duplicates
   const parentNode = (svgEl.parentElement || svgEl) as HTMLElement;
@@ -341,14 +343,14 @@ export function renderBarChart(
 
   const categoryBand = d3
     .scaleBand<string>()
-    .domain(categories)
+    .domain(categories as string[])
     .range(orientation === 'vertical' ? [0, innerWidth] : [0, innerHeight])
     .paddingInner(barPadding)
     .paddingOuter(barPadding / 2);
 
   const seriesBand = d3
     .scaleBand<string>()
-    .domain(series)
+    .domain(series as string[])
     .range([0, categoryBand.bandwidth()])
     .padding(0.05);
 
@@ -375,14 +377,14 @@ export function renderBarChart(
       stack.offset(d3.stackOffsetDiverging);
     }
 
-    const grouped = d3.group(data, d => d[categoryKey]);
+    const grouped = d3.group(data, d => d[categoryKey] as string);
 
     stackedData = stack(
       Array.from(grouped, ([key, values]) => ({
         category: key,
         values
-      }))
-    );
+      })) as any
+    ) as any;
 
     const maxValue = mode === 'stacked100' ? 1 : d3.max(stackedData, (s: any) => d3.max(s, (d: any) => d[1])) || 0;
     const minValue = mode === 'stacked100' ? 0 : d3.min(stackedData, (s: any) => d3.min(s, (d: any) => d[0])) || 0;
@@ -640,7 +642,7 @@ export function renderBarChart(
       if (tooltipEl) {
         const val = d[valueKey];
         const seriesVal = seriesKey ? d[seriesKey] : undefined;
-        const content = `${seriesVal !== undefined ? `<div><strong>${String(seriesVal)}</strong></div>` : ''}<div>Value: ${fmt(val)}</div>`;
+        const content = `${seriesVal !== undefined ? `<div><strong>${String(seriesVal)}</strong></div>` : ''}<div>Value: ${fmt(val as any)}</div>`;
         const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
         tooltipEl.style.left = `${event.clientX - rect.left}px`;
         tooltipEl.style.top = `${event.clientY - rect.top}px`;

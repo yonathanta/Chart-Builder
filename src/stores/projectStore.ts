@@ -27,16 +27,21 @@ export interface Dashboard {
 
 export interface ReportBlock {
     id: string
-    type: 'header' | 'text' | 'chart'
+    type: 'header' | 'text' | 'chart' | 'image' | 'video'
     content: string // text or header content
     chartId?: string
+}
+
+export interface ReportPage {
+    id: string
+    blocks: ReportBlock[]
 }
 
 export interface Report {
     id: string
     name: string
     projectId: string
-    blocks: ReportBlock[]
+    pages: ReportPage[]
     createdAt: number
 }
 
@@ -147,7 +152,7 @@ export const useProjectStore = defineStore('projects', () => {
         return newDashboard
     }
 
-    const saveReport = (name: string, blocks: ReportBlock[], id?: string) => {
+    const saveReport = (name: string, pages: ReportPage[], id?: string) => {
         if (!currentProject.value) {
             throw new Error('No project selected')
         }
@@ -160,7 +165,7 @@ export const useProjectStore = defineStore('projects', () => {
             id: reportId,
             name,
             projectId: currentProject.value.id,
-            blocks,
+            pages,
             createdAt: existingReport ? existingReport.createdAt : Date.now()
         }
 

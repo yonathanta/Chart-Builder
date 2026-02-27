@@ -24,8 +24,6 @@ export function renderDotDonutChart(
     const textColor = config.textColor ?? '#0f172a';
     const labelColor = config.labelColor ?? '#475569';
     const fontFamily = spec.style?.fontFamily ?? 'Inter, sans-serif';
-    const minDonutSize = config.minDonutSize ?? 160;
-
     const categoryKey = spec.encoding.category.field;
     const valueKey = spec.encoding.value.field;
 
@@ -48,50 +46,53 @@ export function renderDotDonutChart(
     const width = Number(svg.attr('width')) || 800;
     const height = Number(svg.attr('height')) || 400;
 
+    const titlePadding = 45;
+    const availableHeight = spec.title ? height - titlePadding : height;
+    const labelHeight = 35; // Space for the category text under the donut
+
     // 3. Layout Calculation
     const n = cleanData.length;
     let cols = 1;
     let rows = 1;
     let itemWidth = width;
-    let rowHeight = height;
+    let rowHeight = availableHeight;
 
     if (layout === 'grid') {
-        cols = Math.floor(width / minDonutSize);
-        if (cols < 1) cols = 1;
-        if (cols > n) cols = n;
+        // Find optimal cols to maximize donut size while fitting n items in (width, availableHeight)
+        let bestSize = 0;
+        let bestCols = 1;
+
+        for (let c = 1; c <= n; c++) {
+            const r = Math.ceil(n / c);
+            const cw = width / c;
+            const ch = availableHeight / r;
+            const size = Math.min(cw, ch - labelHeight);
+            if (size > bestSize) {
+                bestSize = size;
+                bestCols = c;
+            }
+        }
+        cols = bestCols;
         rows = Math.ceil(n / cols);
         itemWidth = width / cols;
-        rowHeight = itemWidth;
+        rowHeight = availableHeight / rows;
     } else if (layout === 'horizontal') {
         cols = n;
         rows = 1;
         itemWidth = width / n;
-        rowHeight = Math.min(height, itemWidth);
+        rowHeight = availableHeight;
     } else if (layout === 'vertical') {
         cols = 1;
         rows = n;
         itemWidth = width;
-        rowHeight = Math.min(height / n, minDonutSize);
+        rowHeight = availableHeight / n;
     } else if (layout === 'circular') {
         cols = 1;
         rows = 1;
+        itemWidth = width;
+        rowHeight = availableHeight;
     }
 
-    const labelHeight = 40;
-    // Calculate dynamic height
-    let totalHeight = height;
-    if (layout === 'vertical') {
-        totalHeight = Math.max(height, n * 200);
-    } else if (layout === 'grid') {
-        const gridCols = Math.floor(width / minDonutSize) || 1;
-        const gridRows = Math.ceil(n / gridCols);
-        totalHeight = Math.max(height, gridRows * 200);
-    } else if (layout === 'circular') {
-        totalHeight = Math.max(height, width); // Square-ish for circular
-    }
-
-    svg.attr('height', totalHeight);
-    // Clear any previous drawing so the selected chart renders alone
     svg.selectAll('*').remove();
 
     // 4. Render
@@ -113,13 +114,13 @@ export function renderDotDonutChart(
     const root = svg
         .append('g')
         .attr('class', 'chart-root')
-        .attr('transform', spec.title ? `translate(0, 40)` : '')
+        .attr('transform', spec.title ? `translate(0, ${titlePadding})` : '')
         .attr('font-family', fontFamily);
 
-    const minDim = Math.min(width, totalHeight);
+    const minDim = Math.min(width, availableHeight);
     // Circular layout specific constants
     const centerX = width / 2;
-    const centerY = totalHeight / 2;
+    const centerY = availableHeight / 2;
     // Reduce ring radius force if circular to ensure labels fit
     const ringRadiusForce = layout === 'circular'
         ? minDim * 0.32
@@ -139,9 +140,11 @@ export function renderDotDonutChart(
             const colIndex = i % cols;
             const rowIndex = Math.floor(i / cols);
             cx = colIndex * itemWidth + itemWidth / 2;
-            cy = rowIndex * (rowHeight + labelHeight) + rowHeight / 2 + 20; // Added offset for top padding
+            // Center the donut in the available cell height (rowHeight - labelHeight)
+            const donutCellHeight = rowHeight - labelHeight;
+            cy = rowIndex * rowHeight + donutCellHeight / 2;
             currentItemWidth = itemWidth;
-            currentItemHeight = rowHeight;
+            currentItemHeight = donutCellHeight;
         }
 
         // Donut geometry

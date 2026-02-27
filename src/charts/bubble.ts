@@ -53,21 +53,23 @@ export function renderBubbleChart(
     // 2. Setup SVG
     const svg = d3.select(svgEl);
     const width = Number(svg.attr('width')) || 800;
-    const minHeight = Math.max(600, nodes.length * 4); // Basic heuristic
-    const height = Math.max(Number(svg.attr('height')) || 0, minHeight);
-    svg.attr('height', height);
+    const height = Number(svg.attr('height')) || 400;
+
+    const titlePadding = 45;
+    const availableHeight = spec.title ? height - titlePadding : height;
+
     svg.selectAll('*').remove();
 
-    const g = svg.append("g");
-    const center = { x: width / 2, y: height / 2 };
+    const g = svg.append("g")
+        .attr("transform", spec.title ? `translate(0, ${titlePadding})` : "");
+    const center = { x: width / 2, y: availableHeight / 2 };
 
     // Render Title
     if (spec.title) {
-        svg.selectAll('text.chart-title').remove();
         svg.append('text')
             .attr('class', 'chart-title')
             .attr('x', width / 2)
-            .attr('y', 30) // Position at the top
+            .attr('y', 25)
             .attr('text-anchor', 'middle')
             .style('font-size', '18px')
             .style('font-weight', 'bold')
@@ -160,8 +162,8 @@ export function renderBubbleChart(
 
     // 5. Simulation
     const innerR = 0;
-    const middleR = Math.min(width, height) * 0.22;
-    const outerR = Math.min(width, height) * 0.38;
+    const middleR = Math.min(width, availableHeight) * 0.22;
+    const outerR = Math.min(width, availableHeight) * 0.38;
 
     const simulation = d3.forceSimulation(nodes as any)
         .force("charge", d3.forceManyBody().strength(-12))

@@ -1,40 +1,80 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useProjectStore, type ReportBlock, type Chart, type Report } from '../stores/projectStore'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
+import { useProjectStore, type ReportBlock, type Chart, type Report, type ReportPage } from '../stores/projectStore'
 import ReportTitleBlock from '../components/ReportBlocks/ReportTitleBlock.vue'
 import ReportTextBlock from '../components/ReportBlocks/ReportTextBlock.vue'
 import ReportChartBlock from '../components/ReportBlocks/ReportChartBlock.vue'
+import ReportImageBlock from '../components/ReportBlocks/ReportImageBlock.vue'
+import ReportVideoBlock from '../components/ReportBlocks/ReportVideoBlock.vue'
 
 const projectStore = useProjectStore()
 const currentReportId = ref<string | null>(null)
 const reportName = ref('New Report')
-const blocks = ref<ReportBlock[]>([])
+const pages = ref<ReportPage[]>([
+  { id: crypto.randomUUID(), blocks: [] }
+])
+const activePageId = ref<string>(pages.value[0]!.id)
+const showSaveDropdown = ref(false)
 
 const availableCharts = computed(() => {
-  if (!projectStore.currentProject) return []
-  return projectStore.loadChartsByProject(projectStore.currentProject.id)
+  const proj = projectStore.currentProject
+  if (!proj) return []
+  return projectStore.loadChartsByProject(proj.id)
 })
 
 const savedReports = computed(() => {
-  if (!projectStore.currentProject) return []
-  return projectStore.loadReportsByProject(projectStore.currentProject.id)
+  const proj = projectStore.currentProject
+  if (!proj) return []
+  return projectStore.loadReportsByProject(proj.id)
 })
 
 function createNewReport() {
   currentReportId.value = null
   reportName.value = 'New Report'
-  blocks.value = []
+  const newPageId = crypto.randomUUID()
+  pages.value = [{ id: newPageId, blocks: [] }]
+  activePageId.value = newPageId
 }
 
 function loadReport(report: Report) {
   currentReportId.value = report.id
   reportName.value = report.name
-  // Deep copy blocks to avoid direct mutation of store state before saving
-  blocks.value = JSON.parse(JSON.stringify(report.blocks))
+  // Deep copy pages to avoid direct mutation of store state before saving
+  pages.value = JSON.parse(JSON.stringify(report.pages))
+  if (pages.value.length > 0) {
+    activePageId.value = pages.value[0]!.id
+  }
+}
+
+function addPage() {
+  const newPageId = crypto.randomUUID()
+  pages.value.push({
+    id: newPageId,
+    blocks: []
+  })
+  activePageId.value = newPageId
+}
+
+function removePage(pageId: string) {
+  if (pages.value.length <= 1) return
+  const index = pages.value.findIndex(p => p.id === pageId)
+  pages.value.splice(index, 1)
+  if (activePageId.value === pageId) {
+    activePageId.value = pages.value[Math.max(0, index - 1)].id
+  }
+}
+
+function getActivePage(): ReportPage {
+  const page = pages.value.find(p => p.id === activePageId.value)
+  return page || pages.value[0]!
 }
 
 function addHeader() {
-  blocks.value.push({
+  const page = getActivePage()
+  if (!page) return
+  page.blocks.push({
     id: crypto.randomUUID(),
     type: 'header',
     content: 'New Section'
@@ -42,7 +82,9 @@ function addHeader() {
 }
 
 function addText() {
-  blocks.value.push({
+  const page = getActivePage()
+  if (!page) return
+  page.blocks.push({
     id: crypto.randomUUID(),
     type: 'text',
     content: ''
@@ -50,7 +92,9 @@ function addText() {
 }
 
 function addChart(chart: Chart) {
-  blocks.value.push({
+  const page = getActivePage()
+  if (!page) return
+  page.blocks.push({
     id: crypto.randomUUID(),
     type: 'chart',
     content: '',
@@ -58,20 +102,46 @@ function addChart(chart: Chart) {
   })
 }
 
-function removeBlock(id: string) {
-  blocks.value = blocks.value.filter(b => b.id !== id)
+function addImage() {
+  const page = getActivePage()
+  if (!page) return
+  page.blocks.push({
+    id: crypto.randomUUID(),
+    type: 'image',
+    content: ''
+  })
 }
 
-function moveBlock(index: number, direction: 'up' | 'down') {
-  const newIndex = direction === 'up' ? index - 1 : index + 1
-  if (newIndex < 0 || newIndex >= blocks.value.length) return
+function addVideo() {
+  const page = getActivePage()
+  if (!page) return
+  page.blocks.push({
+    id: crypto.randomUUID(),
+    type: 'video',
+    content: ''
+  })
+}
+
+function removeBlock(pageId: string, blockId: string) {
+  const page = pages.value.find(p => p.id === pageId)
+  if (page) {
+    page.blocks = page.blocks.filter(b => b.id !== blockId)
+  }
+}
+
+function moveBlock(pageId: string, index: number, direction: 'up' | 'down') {
+  const page = pages.value.find(p => p.id === pageId)
+  if (!page) return
   
-  const block = blocks.value[index]
-  const otherBlock = blocks.value[newIndex]
+  const newIndex = direction === 'up' ? index - 1 : index + 1
+  if (newIndex < 0 || newIndex >= page.blocks.length) return
+  
+  const block = page.blocks[index]
+  const otherBlock = page.blocks[newIndex]
   if (!block || !otherBlock) return
 
-  blocks.value[index] = otherBlock
-  blocks.value[newIndex] = block
+  page.blocks[index] = otherBlock
+  page.blocks[newIndex] = block
 }
 
 function handleSaveReport() {
@@ -79,9 +149,61 @@ function handleSaveReport() {
     alert('Select a project first!')
     return
   }
-  const saved = projectStore.saveReport(reportName.value, blocks.value, currentReportId.value || undefined)
+  const saved = projectStore.saveReport(reportName.value, pages.value, currentReportId.value || undefined)
   currentReportId.value = saved.id
   alert('Report saved!')
+  showSaveDropdown.value = false
+}
+
+async function exportAsPDF() {
+  if (pages.value.length === 0) return
+  
+  showSaveDropdown.value = false
+  const pdf = new jsPDF('p', 'mm', 'a4')
+  const pdfWidth = pdf.internal.pageSize.getWidth()
+  // const pdfHeight = pdf.internal.pageSize.getHeight()
+
+  for (let i = 0; i < pages.value.length; i++) {
+    const pageEl = document.getElementById(`page-${i}`)
+    if (pageEl) {
+      const canvas = await html2canvas(pageEl, {
+        scale: 2,
+        useCORS: true,
+        logging: false
+      })
+      const imgData = canvas.toDataURL('image/jpeg', 0.95)
+      
+      if (i > 0) pdf.addPage()
+      
+      // Calculate height to maintain aspect ratio
+      const imgProps = pdf.getImageProperties(imgData)
+      const height = (imgProps.height * pdfWidth) / imgProps.width
+      
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, height)
+    }
+  }
+  
+  pdf.save(`${reportName.value}.pdf`)
+}
+
+async function exportAsJPEG() {
+  if (pages.value.length === 0) return
+
+  showSaveDropdown.value = false
+  for (let i = 0; i < pages.value.length; i++) {
+    const pageEl = document.getElementById(`page-${i}`)
+    if (pageEl) {
+      const canvas = await html2canvas(pageEl, {
+        scale: 2,
+        useCORS: true,
+        logging: false
+      })
+      const link = document.createElement('a')
+      link.download = `${reportName.value}-page-${i + 1}.jpg`
+      link.href = canvas.toDataURL('image/jpeg', 0.95)
+      link.click()
+    }
+  }
 }
 </script>
 
@@ -109,10 +231,19 @@ function handleSaveReport() {
       </div>
 
       <div class="sidebar-section">
+        <h3 class="panel__title">Report Structure</h3>
+        <div class="action-list">
+          <button class="btn btn--outline block-btn" @click="addPage">+ Add New Page</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
         <h3 class="panel__title">Add Content</h3>
         <div class="action-list">
           <button class="btn btn--outline block-btn" @click="addHeader">+ Add Title Section</button>
           <button class="btn btn--outline block-btn" @click="addText">+ Add Text Section</button>
+          <button class="btn btn--outline block-btn" @click="addImage">+ Add Image</button>
+          <button class="btn btn--outline block-btn" @click="addVideo">+ Add Video</button>
         </div>
       </div>
 
@@ -133,39 +264,67 @@ function handleSaveReport() {
         <input type="text" v-model="reportName" class="report-name-input" placeholder="Report Name" />
         <div class="header-actions">
            <span v-if="currentReportId" class="status-badge">Editing Saved Report</span>
-           <button class="btn btn--primary" @click="handleSaveReport">Save Report</button>
+           <div class="save-dropdown-container">
+             <button class="btn btn--primary" @click="showSaveDropdown = !showSaveDropdown">
+               Save Report ▾
+             </button>
+             <div v-if="showSaveDropdown" class="save-dropdown-menu">
+               <button @click="handleSaveReport">Save Project</button>
+               <button @click="exportAsPDF">Save as PDF</button>
+               <button @click="exportAsJPEG">Save as JPEG</button>
+             </div>
+           </div>
         </div>
       </header>
 
-      <div class="report-preview">
-        <div v-for="(block, index) in blocks" :key="block.id" class="report-block">
-          <div class="block-controls">
-            <div class="move-btns">
-              <button @click="moveBlock(index, 'up')" :disabled="index === 0" class="mini-btn">↑</button>
-              <button @click="moveBlock(index, 'down')" :disabled="index === blocks.length - 1" class="mini-btn">↓</button>
-            </div>
-            <button class="delete-btn" @click="removeBlock(block.id)">×</button>
-          </div>
+      <div class="report-preview-container">
+        <div v-for="(page, pIdx) in pages" :key="page.id" 
+             class="report-page-outer"
+             :class="{ active: activePageId === page.id }"
+             @click="activePageId = page.id"
+        >
+          <div class="page-number">Page {{ pIdx + 1 }}</div>
+          <button v-if="pages.length > 1" class="page-delete-btn" @click.stop="removePage(page.id)">Remove Page</button>
+          
+          <div class="report-preview page-content-area" :id="'page-' + pIdx">
+            <div v-for="(block, index) in page.blocks" :key="block.id" class="report-block">
+              <div class="block-controls">
+                <div class="move-btns">
+                  <button @click.stop="moveBlock(page.id, index, 'up')" :disabled="index === 0" class="mini-btn">↑</button>
+                  <button @click.stop="moveBlock(page.id, index, 'down')" :disabled="index === page.blocks.length - 1" class="mini-btn">↓</button>
+                </div>
+                <button class="delete-btn" @click.stop="removeBlock(page.id, block.id)">×</button>
+              </div>
 
-          <div class="block-content">
-            <ReportTitleBlock 
-              v-if="block.type === 'header'" 
-              v-model="block.content" 
-            />
-            <ReportTextBlock 
-              v-else-if="block.type === 'text'" 
-              v-model="block.content" 
-            />
-            <ReportChartBlock 
-              v-else-if="block.type === 'chart'" 
-              :chart-id="block.chartId!" 
-            />
+              <div class="block-content">
+                <ReportTitleBlock 
+                  v-if="block.type === 'header'" 
+                  v-model="block.content" 
+                />
+                <ReportTextBlock 
+                  v-else-if="block.type === 'text'" 
+                  v-model="block.content" 
+                />
+                <ReportChartBlock 
+                  v-else-if="block.type === 'chart'" 
+                  :chart-id="block.chartId!" 
+                />
+                <ReportImageBlock 
+                  v-else-if="block.type === 'image'" 
+                  v-model="block.content" 
+                />
+                <ReportVideoBlock 
+                  v-else-if="block.type === 'video'" 
+                  v-model="block.content" 
+                />
+              </div>
+            </div>
+
+            <div v-if="page.blocks.length === 0" class="empty-state">
+              <div class="empty-icon">📝</div>
+              <p>Page {{ pIdx + 1 }} is empty. Click sidebar elements to add content.</p>
+            </div>
           </div>
-        </div>
-        
-        <div v-if="blocks.length === 0" class="empty-state">
-          <div class="empty-icon">📝</div>
-          <p>Start building your report by adding titles, text, and charts from the sidebar.</p>
         </div>
       </div>
     </main>
@@ -277,14 +436,92 @@ function handleSaveReport() {
   align-items: center;
 }
 
-.report-preview {
+.report-preview-container {
   width: 100%;
   max-width: 850px;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+
+.report-page-outer {
+  position: relative;
+  transition: transform 0.2s;
+}
+
+.report-page-outer.active {
+  box-shadow: 0 0 0 4px #2563eb33;
+  border-radius: 12px;
+}
+
+.page-number {
+  position: absolute;
+  left: -80px;
+  top: 0;
+  font-weight: 700;
+  color: #94a3b8;
+  font-size: 1.25rem;
+}
+
+.page-delete-btn {
+  position: absolute;
+  right: -120px;
+  top: 0;
+  background: #fee2e2;
+  color: #ef4444;
+  border: 1px solid #fecaca;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.page-delete-btn:hover {
+  background: #fecaca;
+}
+
+.report-preview {
+  width: 100%;
   background: white;
   min-height: 1100px;
   padding: 80px 60px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
   border-radius: 8px;
+}
+
+.save-dropdown-container {
+  position: relative;
+}
+
+.save-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.save-dropdown-menu button {
+  padding: 12px 16px;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.save-dropdown-menu button:hover {
+  background: #f1f5f9;
+  color: #1e293b;
 }
 
 .report-name-input {

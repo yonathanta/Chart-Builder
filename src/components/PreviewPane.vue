@@ -16,8 +16,9 @@ const props = defineProps<{
   spec: ChartSpec;
   lastValidated?: string;
   barConfig?: BuilderBarConfig;
-  lineConfig?: Partial<LineChartConfig>;
-  areaConfig?: Partial<AreaChartConfig>;
+  lineConfig?: any;
+  areaConfig?: any;
+  stackedAreaConfig?: any;
   dotDonutConfig?: DotDonutConfig;
   pieConfig?: PieConfig;
   scatterConfig?: ScatterConfig;
@@ -229,38 +230,36 @@ async function loadAndRender() {
       const xKey = props.spec.encoding.category.field;
       const yKey = props.spec.encoding.value.field;
       const seriesField = props.spec.encoding.series?.field;
-      const cfg: LineChartConfig = {
+      const cfg: any = {
         xKey,
         yKey,
-        xType: props.lineConfig?.xType ?? 'time',
-        xFormat: props.lineConfig?.xFormat ?? '%Y-%m-%d',
+        xType: props.lineConfig?.axisConfig?.showXAxis ? (props.lineConfig?.dataConfig?.xType || 'time') : 'category',
+        xFormat: props.lineConfig?.dataConfig?.xFormat || '%Y-%m-%d',
         yType: 'linear',
         width,
         height,
-        margin: props.lineConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
-        lineColor: props.lineConfig?.lineColor ?? '#2563eb',
-        lineWidth: props.lineConfig?.lineWidth ?? 2,
-        curveType: props.lineConfig?.curveType ?? 'linear',
-        showXAxis: props.lineConfig?.showXAxis ?? true,
-        showYAxis: props.lineConfig?.showYAxis ?? true,
-        xTicks: props.lineConfig?.xTicks ?? 6,
-        yTicks: props.lineConfig?.yTicks ?? 5,
-        xTickFormat: props.lineConfig?.xTickFormat,
-        yTickFormat: props.lineConfig?.yTickFormat ?? '~s',
-        showGrid: props.lineConfig?.showGrid ?? true,
-        tooltip: props.lineConfig?.tooltip ?? true,
-        tooltipFormat: props.lineConfig?.tooltipFormat ?? ((d: any) => {
+        margin: { top: 24, right: 24, bottom: 40, left: 52 },
+        lineColor: props.lineConfig?.lineStyle?.color || '#2563eb',
+        lineWidth: props.lineConfig?.lineStyle?.strokeWidth || 2,
+        curveType: props.lineConfig?.lineStyle?.curveType || 'linear',
+        showXAxis: props.lineConfig?.axisConfig?.showXAxis ?? true,
+        showYAxis: props.lineConfig?.axisConfig?.showYAxis ?? true,
+        xTicks: 6,
+        yTicks: 5,
+        yTickFormat: '~s',
+        showGrid: props.lineConfig?.axisConfig?.gridEnabled ?? true,
+        tooltip: props.lineConfig?.interactionConfig?.tooltipEnabled ?? true,
+        tooltipFormat: (d: any) => {
           const val = d[yKey];
           const series = seriesField ? d[seriesField] : undefined;
           const parts = [series !== undefined ? `<div><strong>${String(series)}</strong></div>` : '', `<div>Value: ${val}</div>`];
           return parts.join('');
-        }),
-        showPoints: props.lineConfig?.showPoints ?? true,
-        pointRadius: props.lineConfig?.pointRadius ?? 3,
-        hoverColor: props.lineConfig?.hoverColor ?? '#1d4ed8',
-        animate: props.lineConfig?.animate ?? true,
-        duration: props.lineConfig?.duration ?? 800,
-        yDomain: props.lineConfig?.yDomain,
+        },
+        showPoints: props.lineConfig?.pointStyle?.showPoints ?? true,
+        pointRadius: props.lineConfig?.pointStyle?.radius ?? 3,
+        hoverColor: '#1d4ed8',
+        animate: true,
+        duration: 800,
       };
 
       const lineRows = filteredRows.value;
@@ -273,55 +272,39 @@ async function loadAndRender() {
 
       const xKey = props.spec.encoding.category.field;
       const yKey = props.spec.encoding.value.field;
-      const seriesField = props.spec.encoding.series?.field;
-      const cfg: AreaChartConfig = {
+      const cfg: any = {
         xKey,
         yKey,
-        xType: props.areaConfig?.xType ?? 'time',
-        xParseFormat: props.areaConfig?.xParseFormat ?? '%Y-%m-%d',
+        xType: 'time',
+        xParseFormat: '%Y-%m-%d',
         yType: 'linear',
         width,
         height,
-        margin: props.areaConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
+        margin: { top: 24, right: 24, bottom: 40, left: 52 },
         responsive: true,
         backgroundColor: props.spec.style?.background || 'transparent',
-        xDomain: props.areaConfig?.xDomain,
-        yDomain: props.areaConfig?.yDomain,
         yNice: true,
-        padding: props.areaConfig?.padding ?? 0.5,
-        areaColor: props.areaConfig?.areaColor ?? '#2563eb',
-        areaOpacity: props.areaConfig?.areaOpacity ?? 0.24,
-        strokeColor: props.areaConfig?.strokeColor ?? '#1d4ed8',
-        strokeWidth: props.areaConfig?.strokeWidth ?? 2,
-        curveType: props.areaConfig?.curveType ?? 'linear',
-        defined: props.areaConfig?.defined,
-        showXAxis: props.areaConfig?.showXAxis ?? true,
-        showYAxis: props.areaConfig?.showYAxis ?? true,
-        xTicks: props.areaConfig?.xTicks ?? 6,
-        yTicks: props.areaConfig?.yTicks ?? 5,
-        xTickFormat: props.areaConfig?.xTickFormat,
-        yTickFormat: props.areaConfig?.yTickFormat ?? '~s',
-        axisColor: props.areaConfig?.axisColor ?? '#cbd5e1',
-        showGrid: props.areaConfig?.showGrid ?? true,
-        gridColor: props.areaConfig?.gridColor ?? '#e2e8f0',
-        showPoints: props.areaConfig?.showPoints ?? true,
-        pointRadius: props.areaConfig?.pointRadius ?? 3,
-        pointColor: props.areaConfig?.pointColor ?? '#1d4ed8',
-        pointStroke: props.areaConfig?.pointStroke ?? '#ffffff',
-        tooltip: props.areaConfig?.tooltip ?? true,
-        tooltipFormat: props.areaConfig?.tooltipFormat ?? ((d: any) => {
-          const val = d[yKey];
-          const series = seriesField ? d[seriesField] : undefined;
-          const parts = [series !== undefined ? `<div><strong>${String(series)}</strong></div>` : '', `<div>Value: ${val}</div>`];
-          return parts.join('');
-        }),
-        hoverLine: props.areaConfig?.hoverLine ?? true,
-        hoverColor: props.areaConfig?.hoverColor ?? '#94a3b8',
-        focusCircle: props.areaConfig?.focusCircle ?? true,
-        animate: props.areaConfig?.animate ?? true,
-        duration: props.areaConfig?.duration ?? 800,
-        easing: undefined,
-        sortData: props.areaConfig?.sortData ?? false,
+        padding: 0.5,
+        areaColor: props.areaConfig?.areaStyle?.fillColor || '#2563eb',
+        areaOpacity: props.areaConfig?.areaStyle?.fillOpacity || 0.24,
+        strokeColor: '#1d4ed8',
+        strokeWidth: 2,
+        curveType: 'linear',
+        showXAxis: props.areaConfig?.axisConfig?.showXAxis ?? true,
+        showYAxis: props.areaConfig?.axisConfig?.showYAxis ?? true,
+        xTicks: 6,
+        yTicks: 5,
+        showGrid: props.areaConfig?.axisConfig?.gridEnabled ?? true,
+        tooltip: props.areaConfig?.interactionConfig?.tooltipEnabled ?? true,
+        showPoints: true,
+        pointRadius: 3,
+        pointColor: '#1d4ed8',
+        pointStroke: '#ffffff',
+        hoverLine: true,
+        hoverColor: '#94a3b8',
+        focusCircle: true,
+        animate: true,
+        duration: 800,
       };
 
       const areaRows = filteredRows.value;
@@ -360,6 +343,32 @@ async function loadAndRender() {
       svg.style.display = "block";
       renderOrbitDonutChart(svg, props.spec, filteredRows.value, props.orbitDonutConfig);
       status.value = "Rendered orbit donut chart";
+    } else if (props.spec.type === "stackedArea") {
+      // Stacked Area uses drawAreaChart but with stackConfig
+      svg.style.display = "none";
+      if (!frameRef.value) throw new Error("No frame container");
+      const xKey = props.spec.encoding.category.field;
+      const yKey = props.spec.encoding.value.field;
+      const cfg: any = {
+        xKey,
+        yKey,
+        xType: 'time',
+        width,
+        height,
+        margin: { top: 24, right: 24, bottom: 40, left: 52 },
+        areaOpacity: props.stackedAreaConfig?.areaStyle?.fillOpacity || 0.6,
+        curveType: props.stackedAreaConfig?.areaStyle?.curveType || 'linear',
+        showXAxis: props.stackedAreaConfig?.axisConfig?.showXAxis ?? true,
+        showYAxis: props.stackedAreaConfig?.axisConfig?.showYAxis ?? true,
+        showGrid: props.stackedAreaConfig?.axisConfig?.gridEnabled ?? true,
+        tooltip: props.stackedAreaConfig?.interactionConfig?.tooltipEnabled ?? true,
+        animate: true,
+        duration: 800,
+        stack: true, // Internal flag for the renderer if supported
+      };
+      const areaRows = filteredRows.value;
+      areaChart = drawAreaChart(frameRef.value, areaRows, cfg);
+      status.value = "Rendered stacked area chart";
     } else {
       status.value = `Type ${props.spec.type} not yet wired`;
     }
@@ -804,7 +813,7 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: center;
   align-items: center;
-  overflow: auto;
+  overflow: hidden;
   position: relative;
 }
 

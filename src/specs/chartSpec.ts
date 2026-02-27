@@ -12,6 +12,7 @@ export const chartTypeValues = [
   "map",
   "pie",
   "stackedBar",
+  "stackedArea",
 ] as const;
 
 export type ChartType = (typeof chartTypeValues)[number];

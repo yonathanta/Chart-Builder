@@ -47,34 +47,24 @@ export function renderOrbitDonutChart(
     // 2. Setup SVG
     const svg = d3.select(svgEl);
     const width = Number(svg.attr('width')) || 800;
-    const requestedHeight = Number(svg.attr('height')) || 420;
+    const height = Number(svg.attr('height')) || 420;
 
-    // Calculate dynamic height
+    const titlePadding = 45;
+    const availableHeight = spec.title ? height - titlePadding : height;
+    const labelHeight = 35;
+
     const count = cleanData.length;
-    let totalHeight = requestedHeight;
-
-    if (layout === 'vertical') {
-        totalHeight = Math.max(requestedHeight, count * 200);
-    } else if (layout === 'grid') {
-        const cols = Math.ceil(Math.sqrt(count));
-        const rows = Math.ceil(count / cols);
-        totalHeight = Math.max(requestedHeight, rows * 200);
-    } else if (layout === 'circular') {
-        totalHeight = Math.max(requestedHeight, width); // Square-ish for circular
-    }
-
-    svg.attr('height', totalHeight);
     svg.selectAll('*').remove();
 
     const cx = width / 2;
-    const cy = totalHeight / 2;
-    const minDim = Math.min(width, totalHeight);
+    const cy = availableHeight / 2;
+    const minDim = Math.min(width, availableHeight);
 
     // 3. Layout Calculation
     if (layout === 'circular') {
         const centerRadius = minDim * 0.15;
         const orbitRadius = minDim * 0.10;
-        const orbitDistance = minDim * 0.32; // Slightly reduced to fit labels
+        const orbitDistance = minDim * 0.32;
 
         const satellites = cleanData.filter(d => !d.center);
         const centerItem = cleanData.find(d => d.center);
@@ -92,46 +82,45 @@ export function renderOrbitDonutChart(
             (d as any).r = orbitRadius;
         });
     } else if (layout === 'horizontal') {
-        const padding = 40;
+        const padding = 20;
         const availableW = width - (padding * 2);
         const spacing = availableW / count;
-        const r = Math.min((spacing * 0.8) / 2, (totalHeight * 0.5) / 2);
+        const r = Math.min((spacing * 0.8) / 2, (availableHeight - labelHeight) / 2);
 
         cleanData.forEach((d, i) => {
             (d as any).cx = padding + (i * spacing) + (spacing / 2);
-            (d as any).cy = cy - 20;
+            (d as any).cy = (availableHeight - labelHeight) / 2;
             (d as any).r = r;
         });
     } else if (layout === 'vertical') {
-        const padding = 40;
-        const availableH = totalHeight - (padding * 2);
+        const padding = 20;
+        const availableH = availableHeight - (padding * 2);
         const spacing = availableH / count;
-        const r = Math.min((spacing * 0.7) / 2, (width * 0.6) / 2);
+        const r = Math.min((spacing * 0.7 - labelHeight) / 2, (width * 0.6) / 2);
 
         cleanData.forEach((d, i) => {
             (d as any).cx = cx;
-            (d as any).cy = padding + (i * spacing) + (spacing / 2);
+            (d as any).cy = padding + (i * spacing) + (spacing / 2) - 10;
             (d as any).r = r;
         });
     } else if (layout === 'grid') {
         const cols = Math.ceil(Math.sqrt(count));
         const rows = Math.ceil(count / cols);
         const cellW = width / cols;
-        const cellH = totalHeight / rows;
-        const r = Math.min(cellW, cellH) * 0.3;
+        const cellH = availableHeight / rows;
+        const r = Math.min(cellW * 0.8, (cellH - labelHeight) * 0.8) / 2;
 
         cleanData.forEach((d, i) => {
             const col = i % cols;
             const row = Math.floor(i / cols);
             (d as any).cx = (col * cellW) + (cellW / 2);
-            (d as any).cy = (row * cellH) + (cellH / 2) - 10;
+            (d as any).cy = (row * cellH) + (cellH - labelHeight) / 2;
             (d as any).r = r;
         });
     }
 
     // Render Title
     if (spec.title) {
-        svg.selectAll('text.chart-title').remove();
         svg.append('text')
             .attr('class', 'chart-title')
             .attr('x', width / 2)
@@ -146,7 +135,7 @@ export function renderOrbitDonutChart(
 
     const root = svg.append('g')
         .attr('class', 'chart-root')
-        .attr('transform', spec.title ? `translate(0, 40)` : '')
+        .attr('transform', spec.title ? `translate(0, ${titlePadding})` : '')
         .attr('font-family', fontFamily);
 
     // 4. Arc Generators

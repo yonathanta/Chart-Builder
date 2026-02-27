@@ -37,15 +37,31 @@ export function renderPieDonutChart(
     const svg = d3.select(svgEl);
     const width = Number(svg.attr('width')) || 500;
     const height = Number(svg.attr('height')) || 400;
-    const margin = { top: 40, right: 40, bottom: 40, left: 40 };
 
-    const radius = Math.min(width, height) / 2 - Math.max(margin.left, margin.right);
+    const titlePadding = 45;
+    const availableHeight = spec.title ? height - titlePadding : height;
+    const margin = { top: 20, right: 40, bottom: 20, left: 40 };
+
+    const radius = Math.min(width - (margin.left + margin.right), availableHeight - (margin.top + margin.bottom)) / 2;
 
     // Clear previous
     svg.selectAll("*").remove();
 
+    // Title
+    if (spec.title) {
+        svg.append('text')
+            .attr('class', 'chart-title')
+            .attr('x', width / 2)
+            .attr('y', 25)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '18px')
+            .style('font-weight', 'bold')
+            .style('fill', '#374151')
+            .text(spec.title);
+    }
+
     const g = svg.append("g")
-        .attr("transform", `translate(${width / 2},${height / 2})`);
+        .attr("transform", `translate(${width / 2},${(availableHeight / 2) + (spec.title ? titlePadding : 0)})`);
 
     // Color scale
     const palette = spec.style?.palette ?? d3.schemeTableau10;
@@ -90,7 +106,7 @@ export function renderPieDonutChart(
 
     // Interaction
     if (showTooltip) {
-        slices.on("mouseover", function (this: any, event: any, d: any) {
+        slices.on("mouseover", function (this: any, _event: any, d: any) {
             d3.select(this).transition().duration(200).attr("d", arcHover);
 
             // Simple overlay tooltip logic if needed, but for now we focus on the expansion
@@ -130,16 +146,4 @@ export function renderPieDonutChart(
             .text(d => d.data.label);
     }
 
-    // Title
-    if (spec.title) {
-        svg.selectAll('text.chart-title').remove();
-        g.append("text")
-            .attr("class", "chart-title")
-            .attr("text-anchor", "middle")
-            .attr("y", -height / 2 + 25)
-            .style("font-size", "18px")
-            .style("font-weight", "bold")
-            .style("fill", "#374151")
-            .text(spec.title);
-    }
 }

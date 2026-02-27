@@ -111,9 +111,22 @@ export function renderScatterPlot(
 
     tempSvg.remove();
 
-    const margin = { top: 40, right: dynamicMarginRight, bottom: 50, left: dynamicMarginLeft };
+    const margin = { top: spec.title ? 65 : 40, right: dynamicMarginRight, bottom: 50, left: dynamicMarginLeft };
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
+
+    // Render Title
+    if (spec.title) {
+        svg.append('text')
+            .attr('class', 'chart-title')
+            .attr('x', width / 2)
+            .attr('y', 25)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '18px')
+            .style('font-weight', 'bold')
+            .style('fill', '#374151')
+            .text(spec.title);
+    }
 
     // Update ranges with actual inner dimensions
     x.range([0, innerWidth]);

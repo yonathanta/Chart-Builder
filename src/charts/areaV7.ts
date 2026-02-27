@@ -277,7 +277,13 @@ export function drawAreaChart(container: string | HTMLElement, data: any[], conf
 
   tempSvg.remove();
 
-  const margin = { ...DEFAULTS.margin, ...(cfg.margin || {}), left: dynamicMarginLeft, right: dynamicMarginRight };
+  const margin = {
+    ...DEFAULTS.margin,
+    ...(cfg.margin || {}),
+    top: cfg.title ? 75 : (cfg.margin?.top || DEFAULTS.margin.top),
+    left: dynamicMarginLeft,
+    right: dynamicMarginRight
+  };
   let width = computedWidth;
   let height = computedHeight;
   let innerWidth = Math.max(0, width - margin.left - margin.right);

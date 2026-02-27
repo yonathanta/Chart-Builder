@@ -60,8 +60,6 @@ const DEFAULTS: Required<Omit<LineChartConfig,
   margin: { top: 24, right: 24, bottom: 40, left: 52 },
 
   // Scales
-  xKey: 'date',
-  yKey: 'value',
   xType: 'time',
   yType: 'linear',
   xFormat: '%Y-%m-%d',
@@ -83,7 +81,7 @@ const DEFAULTS: Required<Omit<LineChartConfig,
 
   // Interactivity
   tooltip: true,
-  tooltipFormat: undefined,
+  tooltipFormat: (d: any) => `${d}`,
   showPoints: true,
   pointRadius: 3,
   hoverColor: '#1d4ed8',
@@ -152,8 +150,8 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
     typeof fmt === 'function' ? fmt : (fmt ? d3.format(fmt) : (d: any) => `${d}`);
 
   // Scales (initialized later)
-  let xScale: d3.ScaleTime<number, number> | d3.ScaleLinear<number, number> | d3.ScalePoint<string>;
-  let yScale: d3.ScaleLinear<number, number>;
+  let xScale: d3.ScaleTime<number, number> | d3.ScaleLinear<number, number> | d3.ScalePoint<string> = d3.scaleLinear() as any;
+  let yScale: d3.ScaleLinear<number, number> = d3.scaleLinear();
 
   // Effective x-type that may adapt based on data
   let currentXType: NonNullable<LineChartConfig['xType']> = cfg.xType || 'time';
@@ -236,7 +234,13 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
   tempSvg.remove();
 
   // Dimensions
-  const margins = { ...DEFAULTS.margin, ...(cfg.margin || {}), left: dynamicMarginLeft, right: dynamicMarginRight };
+  const margins = {
+    ...DEFAULTS.margin,
+    ...(cfg.margin || {}),
+    top: cfg.title ? 65 : (cfg.margin?.top || DEFAULTS.margin.top),
+    left: dynamicMarginLeft,
+    right: dynamicMarginRight
+  };
   let width = computedWidth;
   let height = computedHeight;
   let innerWidth = Math.max(0, width - margins.left - margins.right);
@@ -301,7 +305,7 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
     svg.selectAll('text.chart-title').remove();
     svg.append('text')
       .attr('class', 'chart-title')
-      .attr('x', cfg.width! / 2)
+      .attr('x', width / 2)
       .attr('y', 25)
       .attr('text-anchor', 'middle')
       .style('font-size', '18px')

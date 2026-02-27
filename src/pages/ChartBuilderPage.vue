@@ -4,8 +4,6 @@ import { chartSpecSchema, type ChartSpec } from "../specs/chartSpec";
 import ChartTypeSelector from "../components/ChartTypeSelector.vue";
 import ChartOptionsPanel from "../components/ChartOptionsPanel.vue";
 import BarBuilderControls from "../components/BarBuilderControls.vue";
-import LineBuilderControls from "../components/LineBuilderControls.vue";
-import AreaBuilderControls from "../components/AreaBuilderControls.vue";
 import PieBuilderControls from "../components/PieBuilderControls.vue";
 import MapBuilderControls from "../components/MapBuilderControls.vue";
 import DataBindingPanel from "../components/DataBindingPanel.vue";
@@ -26,6 +24,10 @@ import type { DotDonutConfig } from "../charts/dotDonut";
 import type { OrbitDonutConfig } from "../charts/orbitDonut";
 import type { StackedBarConfig } from "../charts/stackedBar";
 import type { BarBuilderConfig } from "../components/BarBuilderControls.vue";
+import { validateConfigForType, getDefaultsForType } from "../config/configManager";
+import LineChartConfigPanel from "../components/config/LineChartConfigPanel.vue";
+import AreaChartConfigPanel from "../components/config/AreaChartConfigPanel.vue";
+import StackedAreaConfigPanel from "../components/config/StackedAreaConfigPanel.vue";
 
 const spec = ref<ChartSpec>({
   version: "1.0",
@@ -99,6 +101,8 @@ const barConfig = ref<BarBuilderConfig>({
   labelFontWeight: 'normal',
   labelFontColor: '#333333',
   overlays: [],
+  labelOffset: 6,
+  labelPositionMode: 'auto',
 });
 
 const pieConfig = ref<PieConfig>({
@@ -124,53 +128,10 @@ const mapConfig = ref<MapConfig>({
   gradientHighColor: '#0369a1',
 });
 
-const lineConfig = ref<LineChartConfig>({
-  xKey: '',
-  yKey: '',
-  xType: 'time',
-  xFormat: '%Y-%m-%d',
-  lineColor: '#2563eb',
-  lineWidth: 2,
-  curveType: 'linear',
-  showXAxis: true,
-  showYAxis: true,
-  xTicks: 6,
-  yTicks: 5,
-  showGrid: true,
-  tooltip: true,
-  showPoints: true,
-  pointRadius: 3,
-  hoverColor: '#1d4ed8',
-  animate: true,
-  duration: 800,
-});
+const lineConfig = ref<any>(getDefaultsForType('line'));
 
-const areaConfig = ref<AreaChartConfig>({
-  xKey: '',
-  yKey: '',
-  xType: 'time',
-  xParseFormat: '%Y-%m-%d',
-  areaColor: '#2563eb',
-  areaOpacity: 0.24,
-  strokeColor: '#1d4ed8',
-  strokeWidth: 2,
-  curveType: 'linear',
-  showXAxis: true,
-  showYAxis: true,
-  xTicks: 6,
-  yTicks: 5,
-  showGrid: true,
-  tooltip: true,
-  showPoints: true,
-  pointRadius: 3,
-  pointColor: '#1d4ed8',
-  pointStroke: '#ffffff',
-  hoverLine: true,
-  hoverColor: '#94a3b8',
-  focusCircle: true,
-  animate: true,
-  duration: 800,
-});
+const areaConfig = ref<any>(getDefaultsForType('area'));
+const stackedAreaConfig = ref<any>(getDefaultsForType('stackedArea'));
 
 const scatterConfig = ref<ScatterBuilderConfig>({
   animationDuration: 1000,
@@ -314,6 +275,14 @@ function updateType(type: ChartSpec["type"]) {
   } else {
     spec.value = { ...spec.value, type };
   }
+  
+  // Auto-merge/Validate config for the selected type
+  if (['line', 'area', 'stackedArea'].includes(type)) {
+      if (type === 'line') lineConfig.value = validateConfigForType('line', lineConfig.value);
+      if (type === 'area') areaConfig.value = validateConfigForType('area', areaConfig.value);
+      if (type === 'stackedArea') stackedAreaConfig.value = validateConfigForType('stackedArea', stackedAreaConfig.value);
+  }
+
   refreshPreview();
 }
 
@@ -399,6 +368,10 @@ function updateOrbitDonutConfig(next: OrbitDonutConfig) {
 
 function updateStackedBarConfig(next: StackedBarConfig) {
   stackedBarConfig.value = next;
+}
+
+function updateStackedAreaConfig(next: any) {
+  stackedAreaConfig.value = next;
 }
 
 function refreshPreview() {
@@ -685,8 +658,11 @@ function triggerLoadProject() {
               <h3 class="panel__title">Style & Controls</h3>
               <BarBuilderControls v-if="spec.type === 'bar'" :config="barConfig" :fields="dataFields" @update:config="updateBarConfig" />
               <StackedBarBuilderControls v-if="spec.type === 'stackedBar'" :config="stackedBarConfig" @update:config="updateStackedBarConfig" />
-              <LineBuilderControls v-if="spec.type === 'line'" :config="lineConfig" @update:config="updateLineConfig" />
-              <AreaBuilderControls v-if="spec.type === 'area'" :config="areaConfig" @update:config="updateAreaConfig" />
+              <!-- New Modular Config Panels -->
+              <LineChartConfigPanel v-if="spec.type === 'line'" :config="lineConfig" @update:config="updateLineConfig" />
+              <AreaChartConfigPanel v-if="spec.type === 'area'" :config="areaConfig" @update:config="updateAreaConfig" />
+              <StackedAreaConfigPanel v-if="spec.type === 'stackedArea'" :config="stackedAreaConfig" @update:config="updateStackedAreaConfig" />
+              
               <PieBuilderControls v-if="spec.type === 'pie'" :config="pieConfig" @update:config="updatePieConfig" />
               <ScatterBuilderControls v-if="spec.type === 'scatter'" :config="scatterConfig" :fields="dataFields" @update:config="updateScatterConfig" />
               <MapBuilderControls v-if="spec.type === 'map'" :config="mapConfig" @update:config="updateMapConfig" />

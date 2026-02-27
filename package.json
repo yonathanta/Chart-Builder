@@ -9,8 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/html2canvas": "^0.5.35",
     "canvg": "^4.0.3",
     "d3": "^7.9.0",
+    "html2canvas": "^1.4.1",
     "jspdf": "^4.0.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.24",

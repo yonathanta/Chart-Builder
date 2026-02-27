@@ -52,16 +52,16 @@ export async function renderAfricaMap(
     const width = Number(svg.attr('width')) || 900;
     const height = Number(svg.attr('height')) || 700;
 
-    svg.selectAll("*").remove();
+    const titlePadding = 45;
+    const availableHeight = spec.title ? height - titlePadding : height;
 
-    // Apply background color
-    svg.style("background-color", backgroundColor);
+    svg.selectAll("*").remove();
 
     // Projection
     const projection = d3.geoMercator()
         .center(projectionCenter as [number, number])
         .scale(scale)
-        .translate([width / 2, height / 2]);
+        .translate([width / 2, (availableHeight / 2) + (spec.title ? titlePadding : 0)]);
 
     const path = d3.geoPath().projection(projection);
 
@@ -140,11 +140,10 @@ export async function renderAfricaMap(
 
     // Title
     if (spec.title) {
-        svg.selectAll('text.chart-title').remove();
         svg.append("text")
             .attr("class", "chart-title")
             .attr("x", width / 2)
-            .attr("y", 30)
+            .attr("y", 25)
             .attr("text-anchor", "middle")
             .style("font-size", "18px")
             .style("font-weight", "bold")

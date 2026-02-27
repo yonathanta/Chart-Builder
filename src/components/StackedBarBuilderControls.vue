@@ -39,5 +39,11 @@ const local = computed({
         <span>Show legend</span>
       </label>
     </div>
+    <div class="form-field">
+      <label class="checkbox">
+        <input type="checkbox" v-model="local.showValues" />
+        <span>Show values</span>
+      </label>
+    </div>
   </div>
 </template>
