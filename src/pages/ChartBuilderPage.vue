@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
+import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from "vue";
 import { chartSpecSchema, type ChartSpec } from "../specs/chartSpec";
 import ChartTypeSelector from "../components/ChartTypeSelector.vue";
 import ChartOptionsPanel from "../components/ChartOptionsPanel.vue";
@@ -389,6 +389,31 @@ function onPreviewRefresh() {
 
 const previewRef = ref<InstanceType<typeof PreviewPane> | null>(null);
 
+const sidebarActiveFilters = computed<Array<{ column: string; values: string[] }>>(() => {
+  const raw = (previewRef.value as any)?.activeFilters;
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw?.value)) return raw.value;
+  return [];
+});
+
+const sidebarTotalFiltered = computed<number>(() => {
+  const raw = (previewRef.value as any)?.totalFiltered;
+  if (typeof raw === "number") return raw;
+  if (typeof raw?.value === "number") return raw.value;
+  return 0;
+});
+
+const sidebarTotalRows = computed<number>(() => {
+  const raw = (previewRef.value as any)?.rows;
+  if (Array.isArray(raw)) return raw.length;
+  if (Array.isArray(raw?.value)) return raw.value.length;
+  return 0;
+});
+
+function clearSidebarFilter(column: string) {
+  (previewRef.value as any)?.clearValueFilter?.(column);
+}
+
 async function togglePreviewFullscreen() {
   try {
     const comp = previewRef.value as any;
@@ -674,14 +699,55 @@ function triggerLoadProject() {
 
           <!-- Navigation Footer -->
           <div class="step-footer">
-            <button class="btn btn--ghost" :disabled="activeStep === 1" @click="activeStep--">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-              Back
+            <button class="btn btn--ghost step-nav-btn" :disabled="activeStep === 1" @click="activeStep--" title="Previous step" aria-label="Previous step">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             </button>
-            <button class="btn btn--primary btn--icon-right" v-if="activeStep < 4" @click="activeStep++">
-              Next
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:8px"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            <button class="btn btn--primary step-nav-btn" v-if="activeStep < 4" @click="activeStep++" title="Next step" aria-label="Next step">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </button>
+          </div>
+        </div>
+
+        <div class="selection-summary-card" v-if="sidebarTotalRows > 0">
+          <div class="summary-header">
+            <div class="summary-icon">📊</div>
+            <div>
+              <h4 class="summary-title">Data Selection Summary</h4>
+              <p class="summary-subtitle">Overview of data used for graph generation</p>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <div class="summary-item">
+              <span class="summary-label">Rows Selected</span>
+              <span class="summary-value" :class="{ 'value--filtered': sidebarActiveFilters.length > 0 }">
+                {{ sidebarTotalFiltered }} <small>/ {{ sidebarTotalRows }}</small>
+              </span>
+            </div>
+
+            <div class="summary-item">
+              <span class="summary-label">Mapped Fields</span>
+              <div class="mapping-tags">
+                <span v-if="spec.encoding.category?.field" class="mapping-tag tag--x">X: {{ spec.encoding.category.field }}</span>
+                <span v-if="spec.encoding.value?.field" class="mapping-tag tag--y">Y: {{ spec.encoding.value.field }}</span>
+                <span v-if="spec.encoding.series?.field" class="mapping-tag tag--series">Series: {{ spec.encoding.series.field }}</span>
+              </div>
+            </div>
+
+            <div class="summary-item" v-if="sidebarActiveFilters.length > 0">
+              <span class="summary-label">Active Filters</span>
+              <div class="filter-tags">
+                <div v-for="filter in sidebarActiveFilters" :key="filter.column" class="filter-tag">
+                  <span class="filter-col">{{ filter.column }}:</span>
+                  <span class="filter-vals">{{ filter.values.join(', ') }}</span>
+                  <button class="filter-clear" @click="clearSidebarFilter(filter.column)" title="Clear filter">×</button>
+                </div>
+              </div>
+            </div>
+            <div class="summary-item" v-else>
+              <span class="summary-label">Active Filters</span>
+              <span class="summary-value value--none">None (Showing all data)</span>
+            </div>
           </div>
         </div>
       </div>
@@ -904,6 +970,153 @@ function triggerLoadProject() {
   background: #10b981;
 }
 
+.selection-summary-card {
+  margin-top: 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+}
+
+.summary-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.summary-icon {
+  font-size: 1.5rem;
+  background: #eff6ff;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.summary-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.summary-subtitle {
+  margin: 2px 0 0 0;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 24px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summary-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.summary-value {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.value--filtered {
+  color: #2563eb;
+}
+
+.value--none {
+  color: #64748b;
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+.mapping-tags,
+.filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mapping-tag {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.tag--x {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.tag--y {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.tag--series {
+  background: #fef9c3;
+  color: #854d0e;
+}
+
+.filter-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #334155;
+  max-width: 100%;
+}
+
+.filter-col {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.filter-vals {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-clear {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 1.1rem;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.filter-clear:hover {
+  color: #ef4444;
+}
+
 /* Content Card */
 .step-content-card {
   background: white;
@@ -956,6 +1169,20 @@ function triggerLoadProject() {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.step-nav-btn {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step-nav-btn svg {
+  margin: 0 !important;
 }
 
 .panel--no-fold {

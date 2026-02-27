@@ -77,7 +77,7 @@ function onClick(tile: Tile) {
 <style scoped>
 .type-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   width: 100%;
 }

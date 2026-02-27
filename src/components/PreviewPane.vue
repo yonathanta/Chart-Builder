@@ -182,6 +182,17 @@ watch(
 
 const totalFiltered = computed(() => filteredRowsWithIndex.value.length);
 
+const activeFilters = computed(() => {
+  const result: Array<{ column: string; values: string[] }> = [];
+  Object.keys(valueFilterSelections).forEach(col => {
+    const set = valueFilterSelections[col];
+    if (set) {
+      result.push({ column: col, values: Array.from(set) });
+    }
+  });
+  return result;
+});
+
 async function loadAndRender() {
   if (!svgRef.value) return;
   status.value = "Loading data…";
@@ -574,6 +585,9 @@ function renderWithCurrentRows() {
 
 defineExpose({
   rows,
+  activeFilters,
+  totalFiltered,
+  clearValueFilter,
   getSvgEl: () => {
     if (props.spec.type === 'line' || props.spec.type === 'area') {
       return frameRef.value?.querySelector('svg') as SVGSVGElement | null;
@@ -870,4 +884,10 @@ onBeforeUnmount(() => {
 .data-table {
   background: white;
 }
+
+.muted {
+  color: #94a3b8;
+  font-size: 0.875rem;
+}
+
 </style>
