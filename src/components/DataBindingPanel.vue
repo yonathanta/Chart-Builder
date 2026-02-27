@@ -125,6 +125,7 @@ async function handleFileUpload(event: Event) {
   }
 }
 
+/*
 function updateMapping(key: 'category' | 'value' | 'series', val: string) {
   mapping[key] = val || undefined;
   if (mapping.category && mapping.value) {
@@ -135,6 +136,7 @@ function updateMapping(key: 'category' | 'value' | 'series', val: string) {
     });
   }
 }
+*/
 </script>
 
 <template>
@@ -149,7 +151,7 @@ function updateMapping(key: 'category' | 'value' | 'series', val: string) {
       </div>
     </div>
 
-    <div v-if="fields && fields.length" class="form-field form-field--wide" style="margin-top: 12px; border-top: 1px solid #eee; padding-top: 12px;">
+    <!-- <div v-if="fields && fields.length" class="form-field form-field--wide" style="margin-top: 12px; border-top: 1px solid #eee; padding-top: 12px;">
       <h4 class="settings-subtitle" style="margin-bottom: 12px;">Field Mapping</h4>
       <div class="form-grid" style="grid-template-columns: 1fr; gap: 12px;">
         <label class="form-field">
@@ -172,7 +174,7 @@ function updateMapping(key: 'category' | 'value' | 'series', val: string) {
           </select>
         </label>
       </div>
-    </div>
+    </div> -->
 
     <div class="form-field">
       <span>Provider</span>
