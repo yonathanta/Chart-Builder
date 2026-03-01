@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import authService from '../services/authService'
 
 const router = useRouter()
-const authStore = useAuthStore()
 
 const form = reactive({
   email: '',
@@ -12,6 +11,7 @@ const form = reactive({
 })
 
 const formError = ref('')
+const isLoading = ref(false)
 
 function validateFields(): boolean {
   if (!form.email.trim() || !form.password.trim()) {
@@ -23,24 +23,41 @@ function validateFields(): boolean {
   return true
 }
 
-function handleLogin(): void {
+function getErrorMessage(error: unknown): string {
+  const fallbackMessage = 'Unable to sign in right now. Please try again.'
+
+  if (typeof error === 'object' && error !== null) {
+    const maybeResponse = (error as { response?: { data?: { error?: string; message?: string } } }).response
+    const apiMessage = maybeResponse?.data?.error ?? maybeResponse?.data?.message
+
+    if (typeof apiMessage === 'string' && apiMessage.trim().length > 0) {
+      return apiMessage
+    }
+  }
+
+  return fallbackMessage
+}
+
+async function handleLogin(): Promise<void> {
   if (!validateFields()) {
     return
   }
 
-  authStore.login({
-    token: 'fake-auth-token',
-    user: { email: form.email.trim() },
-  })
-  router.push('/')
+  isLoading.value = true
+  formError.value = ''
+
+  try {
+    await authService.login(form.email.trim(), form.password)
+    await router.push('/dashboard')
+  } catch (error) {
+    formError.value = getErrorMessage(error)
+  } finally {
+    isLoading.value = false
+  }
 }
 
 function handleDevelopmentSkip(): void {
-  authStore.login({
-    token: 'mock-dev-token',
-    user: { email: 'dev@local.test' },
-  })
-  router.push('/')
+  router.push('/dashboard')
 }
 </script>
 
@@ -104,7 +121,9 @@ function handleDevelopmentSkip(): void {
 
             <p v-if="formError" class="error-text">{{ formError }}</p>
 
-            <button type="submit" class="login-button">Sign In</button>
+            <button type="submit" class="login-button" :disabled="isLoading">
+              {{ isLoading ? 'Signing In...' : 'Sign In' }}
+            </button>
           </form>
 
           <p class="signup-text">
@@ -322,6 +341,11 @@ function handleDevelopmentSkip(): void {
   color: #0f172a;
   font-weight: 700;
   cursor: pointer;
+}
+
+.login-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .signup-text {

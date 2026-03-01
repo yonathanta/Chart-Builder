@@ -15,6 +15,7 @@ import StackedBarBuilderControls from "../components/StackedBarBuilderControls.v
 import PreviewPane from "../components/PreviewPane.vue";
 import { exportService, type ExportFormat } from "../export/exportService";
 import { useProjectStore } from "../stores/projectStore";
+import chartService from "../services/chartService";
 import type { LineChartConfig } from "../charts/line";
 import type { AreaChartConfig } from "../charts/areaV7";
 import type { PieConfig } from "../charts/pie";
@@ -172,6 +173,9 @@ const stackedBarConfig = ref<StackedBarConfig>({
 
 const projectStore = useProjectStore();
 const newProjectName = ref("");
+const isSavingChart = ref(false);
+const saveSuccessMessage = ref<string | null>(null);
+const saveErrorMessage = ref<string | null>(null);
 
 function handleCreateProject() {
   if (!newProjectName.value.trim()) return;
@@ -179,14 +183,43 @@ function handleCreateProject() {
   newProjectName.value = "";
 }
 
-function handleSaveChart() {
-  if (!projectStore.currentProject) {
-    alert("Please select or create a project first.");
+async function saveChart() {
+  if (isSavingChart.value) {
     return;
   }
-  const name = spec.value.title || "Untitled Chart";
-  projectStore.saveChart(name, spec.value.type, { ...spec.value }, null); // Dataset is fetched via URL for now
-  alert("Chart saved to project!");
+
+  const currentProjectId = projectStore.currentProject?.id;
+  if (!currentProjectId) {
+    saveSuccessMessage.value = null;
+    saveErrorMessage.value = "Please select or create a project first.";
+    return;
+  }
+
+  isSavingChart.value = true;
+  saveSuccessMessage.value = null;
+  saveErrorMessage.value = null;
+
+  try {
+    const chartName = spec.value.title?.trim() || "Untitled Chart";
+    const selectedType = spec.value.type;
+    const chartConfig = { ...spec.value };
+    const chartData = { ...spec.value.data };
+
+    await chartService.createChart({
+      name: chartName,
+      chartType: selectedType,
+      configuration: JSON.stringify(chartConfig),
+      dataset: JSON.stringify(chartData),
+      projectId: currentProjectId,
+    });
+
+    saveSuccessMessage.value = "Chart saved successfully.";
+  } catch (error) {
+    console.error("Save chart failed:", error);
+    saveErrorMessage.value = error instanceof Error ? error.message : "Failed to save chart.";
+  } finally {
+    isSavingChart.value = false;
+  }
 }
 
 const exportFormats: ExportFormat[] = ["svg", "png", "pdf", "html", "spec-json", "project-json"];
@@ -545,9 +578,11 @@ function triggerLoadProject() {
         <p class="muted">Choose type of Graph, configure, preview and export.</p>
       </div>
       <div class="page__actions" style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn--primary" @click="handleSaveChart">
-          Save to Project
+        <button class="btn btn--primary" :disabled="isSavingChart" @click="saveChart">
+          {{ isSavingChart ? 'Saving...' : 'Save to Project' }}
         </button>
+        <p v-if="saveSuccessMessage" class="status-text">{{ saveSuccessMessage }}</p>
+        <p v-else-if="saveErrorMessage" class="alert-text">{{ saveErrorMessage }}</p>
         <input type="file" ref="projectInputRef" style="display:none" accept="application/json" @change="handleLoadProject" />
         <button class="btn btn--outline" @click="triggerLoadProject">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right:4px"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16 6l-4-4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 2v13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>

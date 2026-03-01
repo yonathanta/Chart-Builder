@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -26,17 +25,19 @@ const router = createRouter({
       component: MainLayout,
       meta: { requiresAuth: true },
       children: [
-        { path: 'dashboard', name: 'dashboard', component: DashboardPage },
-        { path: 'project/:id', name: 'project', component: ProjectPage },
+        { path: 'dashboard', name: 'dashboard', component: DashboardPage, meta: { requiresAuth: true } },
+        { path: 'project/:id', name: 'project', component: ProjectPage, meta: { requiresAuth: true } },
         {
           path: 'chart-builder',
           name: 'chart-builder',
           component: ChartBuilderPage,
+          meta: { requiresAuth: true },
         },
         {
           path: 'report-builder',
           name: 'report-builder',
           component: ReportBuilderPage,
+          meta: { requiresAuth: true },
         },
       ],
     },
@@ -44,16 +45,9 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-  const authStore = useAuthStore()
-  authStore.checkAuth()
-  const isAuthenticated = authStore.isAuthenticated
+  const token = localStorage.getItem('token')
 
-  if (isAuthenticated && (to.path === '/login' || to.path === '/register')) {
-    next('/dashboard')
-    return
-  }
-
-  if (to.meta.requiresAuth && !isAuthenticated) {
+  if (to.meta.requiresAuth && !token) {
     next('/login')
     return
   }

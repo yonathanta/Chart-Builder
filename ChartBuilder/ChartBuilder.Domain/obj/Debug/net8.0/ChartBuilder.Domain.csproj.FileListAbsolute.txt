@@ -1,0 +1,12 @@
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\bin\Debug\net8.0\ChartBuilder.Domain.deps.json
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\bin\Debug\net8.0\ChartBuilder.Domain.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\bin\Debug\net8.0\ChartBuilder.Domain.pdb
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\obj\Debug\net8.0\ChartBuilder.Domain.GeneratedMSBuildEditorConfig.editorconfig
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\obj\Debug\net8.0\ChartBuilder.Domain.AssemblyInfoInputs.cache
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\obj\Debug\net8.0\ChartBuilder.Domain.AssemblyInfo.cs
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\obj\Debug\net8.0\ChartBuilder.Domain.csproj.CoreCompileInputs.cache
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\obj\Debug\net8.0\ChartBuilder.Domain.sourcelink.json
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\obj\Debug\net8.0\ChartBuilder.Domain.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\obj\Debug\net8.0\refint\ChartBuilder.Domain.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\obj\Debug\net8.0\ChartBuilder.Domain.pdb
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Domain\obj\Debug\net8.0\ref\ChartBuilder.Domain.dll

@@ -1,0 +1,16 @@
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\ChartBuilder.Application.csproj.AssemblyReference.cache
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\ChartBuilder.Application.GeneratedMSBuildEditorConfig.editorconfig
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\ChartBuilder.Application.AssemblyInfoInputs.cache
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\ChartBuilder.Application.AssemblyInfo.cs
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\ChartBuilder.Application.csproj.CoreCompileInputs.cache
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\ChartBuilder.Application.sourcelink.json
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\bin\Debug\net8.0\ChartBuilder.Application.deps.json
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\bin\Debug\net8.0\ChartBuilder.Application.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\bin\Debug\net8.0\ChartBuilder.Application.pdb
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\bin\Debug\net8.0\ChartBuilder.Domain.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\bin\Debug\net8.0\ChartBuilder.Domain.pdb
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\ChartBui.640AE40E.Up2Date
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\ChartBuilder.Application.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\refint\ChartBuilder.Application.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\ChartBuilder.Application.pdb
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Application\obj\Debug\net8.0\ref\ChartBuilder.Application.dll
