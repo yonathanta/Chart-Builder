@@ -2,8 +2,10 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import authService from '../services/authService'
+import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 const form = reactive({
   email: '',
@@ -39,20 +41,45 @@ function getErrorMessage(error: unknown): string {
 }
 
 async function handleLogin(): Promise<void> {
+  console.log('[LoginPage] handleLogin triggered', { email: form.email })
+
   if (!validateFields()) {
+    console.log('[LoginPage] validation failed')
     return
   }
 
   isLoading.value = true
   formError.value = ''
+  console.log('[LoginPage] validation passed, calling authService.login')
 
   try {
-    await authService.login(form.email.trim(), form.password)
+    const response = await authService.login(form.email.trim(), form.password)
+    const token = typeof response.token === 'string' ? response.token : ''
+    const fallbackEmail = form.email.trim()
+    const responseUser = response.user as { email?: string } | undefined
+    const responseEmail =
+      typeof responseUser?.email === 'string'
+        ? responseUser.email
+        : typeof response.Email === 'string'
+          ? response.Email
+          : fallbackEmail
+
+    authStore.login({
+      token,
+      user: {
+        email: responseEmail,
+      },
+    })
+    console.log('[LoginPage] login success, navigating to /dashboard')
+
     await router.push('/dashboard')
+    console.log('[LoginPage] navigation complete')
   } catch (error) {
+    console.error('[LoginPage] login failed', error)
     formError.value = getErrorMessage(error)
   } finally {
     isLoading.value = false
+    console.log('[LoginPage] handleLogin finished')
   }
 }
 
@@ -92,7 +119,7 @@ function handleDevelopmentSkip(): void {
             <p>Sign in to your account to continue</p>
           </header>
 
-          <form class="login-form" @submit.prevent="handleLogin">
+          <form class="login-form" novalidate @submit.prevent="handleLogin">
             <label class="field-group">
               <span>Email</span>
               <input v-model="form.email" type="email" autocomplete="email" placeholder="you@company.com" />
@@ -121,7 +148,12 @@ function handleDevelopmentSkip(): void {
 
             <p v-if="formError" class="error-text">{{ formError }}</p>
 
-            <button type="submit" class="login-button" :disabled="isLoading">
+            <button
+              type="submit"
+              class="login-button"
+              :disabled="isLoading"
+              @click="console.log('[LoginPage] Sign In button clicked')"
+            >
               {{ isLoading ? 'Signing In...' : 'Sign In' }}
             </button>
           </form>

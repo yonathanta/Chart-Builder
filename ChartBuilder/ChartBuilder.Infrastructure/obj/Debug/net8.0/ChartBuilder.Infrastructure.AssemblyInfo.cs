@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ChartBuilder.Infrastructure")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cdd90e6b69137eefe14fa6916a70ac0f305edce4")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6511f86a5643591795d45180d3a9b9b9106af013")]
 [assembly: System.Reflection.AssemblyProductAttribute("ChartBuilder.Infrastructure")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ChartBuilder.Infrastructure")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
