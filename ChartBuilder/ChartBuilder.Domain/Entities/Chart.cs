@@ -8,6 +8,7 @@ public sealed class Chart : BaseEntity
     public string ChartType { get; private set; } = string.Empty;
     public string Configuration { get; private set; } = string.Empty;
     public string Dataset { get; private set; } = string.Empty;
+    public ChartStatus Status { get; private set; } = ChartStatus.Draft;
     public Guid ProjectId { get; private set; }
     public DateTime CreatedAt { get; private set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; private set; } = DateTime.UtcNow;
@@ -29,6 +30,7 @@ public sealed class Chart : BaseEntity
         ChartType = chartType;
         Configuration = configuration;
         Dataset = dataset;
+        Status = ChartStatus.Draft;
         ProjectId = projectId;
         CreatedAt = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
@@ -44,6 +46,12 @@ public sealed class Chart : BaseEntity
         ChartType = chartType;
         Configuration = configuration;
         Dataset = dataset;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void UpdateStatus(ChartStatus status)
+    {
+        Status = status;
         UpdatedAt = DateTime.UtcNow;
     }
 }

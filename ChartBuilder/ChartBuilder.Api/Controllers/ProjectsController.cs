@@ -1,10 +1,10 @@
 using System.Security.Claims;
+using ChartBuilder.Api.Services;
 using ChartBuilder.Application.Projects.Dtos;
 using ChartBuilder.Domain.Entities;
 using ChartBuilder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace ChartBuilder.Api.Controllers;
 
@@ -14,13 +14,21 @@ namespace ChartBuilder.Api.Controllers;
 public sealed class ProjectsController : ControllerBase
 {
     private readonly AppDbContext _dbContext;
+    private readonly IOwnershipValidationService _ownershipValidationService;
+    private readonly IProjectService _projectService;
 
-    public ProjectsController(AppDbContext dbContext)
+    public ProjectsController(
+        AppDbContext dbContext,
+        IOwnershipValidationService ownershipValidationService,
+        IProjectService projectService)
     {
         _dbContext = dbContext;
+        _ownershipValidationService = ownershipValidationService;
+        _projectService = projectService;
     }
 
     [HttpGet]
+    [Authorize(Roles = "SuperAdmin,Admin,Statistician,Reviewer,Viewer")]
     public async Task<ActionResult<IReadOnlyList<Project>>> Get(CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -28,15 +36,13 @@ public sealed class ProjectsController : ControllerBase
             return Unauthorized();
         }
 
-        var projects = await _dbContext.Projects
-            .Where(project => project.UserId == userId)
-            .OrderByDescending(project => project.UpdatedAt)
-            .ToListAsync(cancellationToken);
+        var projects = await _ownershipValidationService.GetOwnedProjectsAsync(userId, cancellationToken);
 
         return Ok(projects);
     }
 
     [HttpGet("{id:guid}")]
+    [Authorize(Roles = "SuperAdmin,Admin,Statistician,Reviewer,Viewer")]
     public async Task<ActionResult<Project>> GetById(Guid id, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -44,8 +50,7 @@ public sealed class ProjectsController : ControllerBase
             return Unauthorized();
         }
 
-        var project = await _dbContext.Projects
-            .FirstOrDefaultAsync(candidate => candidate.Id == id && candidate.UserId == userId, cancellationToken);
+        var project = await _ownershipValidationService.GetOwnedProjectAsync(userId, id, cancellationToken);
 
         if (project is null)
         {
@@ -56,6 +61,7 @@ public sealed class ProjectsController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "SuperAdmin,Admin,Statistician")]
     public async Task<ActionResult<Project>> Post([FromBody] CreateProjectDto request, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -77,6 +83,7 @@ public sealed class ProjectsController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = "SuperAdmin,Admin,Statistician,Reviewer,Viewer")]
     public async Task<ActionResult<Project>> Put(Guid id, [FromBody] UpdateProjectDto request, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -89,21 +96,17 @@ public sealed class ProjectsController : ControllerBase
             return BadRequest(new { message = "Name is required." });
         }
 
-        var project = await _dbContext.Projects
-            .FirstOrDefaultAsync(candidate => candidate.Id == id && candidate.UserId == userId, cancellationToken);
-
+        var project = await _projectService.UpdateAsync(userId, id, request, cancellationToken);
         if (project is null)
         {
             return NotFound();
         }
 
-        project.UpdateDetails(request.Name.Trim(), request.Description?.Trim() ?? string.Empty);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
         return Ok(project);
     }
 
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "SuperAdmin,Admin,Statistician,Reviewer,Viewer")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -111,16 +114,11 @@ public sealed class ProjectsController : ControllerBase
             return Unauthorized();
         }
 
-        var project = await _dbContext.Projects
-            .FirstOrDefaultAsync(candidate => candidate.Id == id && candidate.UserId == userId, cancellationToken);
-
-        if (project is null)
+        var deleted = await _projectService.DeleteAsync(userId, id, cancellationToken);
+        if (!deleted)
         {
             return NotFound();
         }
-
-        _dbContext.Projects.Remove(project);
-        await _dbContext.SaveChangesAsync(cancellationToken);
 
         return Ok();
     }

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 
 interface AuthUser {
     email: string
+    role?: string
 }
 
 interface AuthSession {
@@ -26,6 +27,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     const isAuthenticated = computed(() => !!session.value?.token)
     const userEmail = computed(() => session.value?.user.email ?? '')
+    const userRole = computed(() => session.value?.user.role ?? '')
 
     const login = (payload: AuthSession) => {
         session.value = payload
@@ -41,6 +43,7 @@ export const useAuthStore = defineStore('auth', () => {
         session,
         isAuthenticated,
         userEmail,
+        userRole,
         login,
         logout
     }

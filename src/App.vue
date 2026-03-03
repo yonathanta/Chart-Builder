@@ -10,6 +10,10 @@ const router = useRouter()
 const authStore = useAuthStore()
 const showNav = computed(() => !route.meta.hideNav)
 const userEmail = computed(() => authStore.userEmail)
+const canAccessAdmin = computed(() => {
+  const role = authStore.userRole.toLowerCase()
+  return role === 'admin' || role === 'superadmin'
+})
 
 function handleLogout(): void {
   authStore.logout()
@@ -27,6 +31,7 @@ function handleLogout(): void {
           <RouterLink to="/" class="nav-link" active-class="active">Chart Builder</RouterLink>
           <RouterLink to="/dashboard" class="nav-link" active-class="active">Dashboard Builder</RouterLink>
           <RouterLink to="/report" class="nav-link" active-class="active">Report Builder</RouterLink>
+          <RouterLink v-if="canAccessAdmin" to="/admin" class="nav-link" active-class="active">Admin</RouterLink>
           </div>
           <div class="auth-actions">
             <span v-if="userEmail" class="user-email">{{ userEmail }}</span>

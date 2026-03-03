@@ -27,8 +27,8 @@ public sealed class AuthController : ControllerBase
         _passwordHasher = new PasswordHasher<User>();
     }
 
-    [AllowAnonymous]
     [HttpPost("register")]
+    [Authorize(Roles = "SuperAdmin,Admin")]
     public async Task<ActionResult<AuthResponseDto>> Register(RegisterDto request, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Email) ||
@@ -53,7 +53,7 @@ public sealed class AuthController : ControllerBase
                 email: request.Email.Trim(),
                 passwordHash: string.Empty,
                 fullName: request.FullName.Trim(),
-                role: UserRole.User,
+                role: UserRole.Viewer,
                 isActive: true);
 
             user.SetPasswordHash(_passwordHasher.HashPassword(user, request.Password));
@@ -127,7 +127,8 @@ public sealed class AuthController : ControllerBase
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new(JwtRegisteredClaimNames.Email, user.Email),
-            new(ClaimTypes.Role, user.Role.ToString())
+            new(ClaimTypes.Role, user.Role.ToString()),
+            new("role", user.Role.ToString())
         };
 
         var credentials = new SigningCredentials(

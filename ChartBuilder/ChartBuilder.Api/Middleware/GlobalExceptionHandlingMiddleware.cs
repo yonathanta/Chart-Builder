@@ -31,7 +31,11 @@ public sealed class GlobalExceptionHandlingMiddleware
             }
 
             context.Response.Clear();
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            context.Response.StatusCode = exception switch
+            {
+                UnauthorizedAccessException => StatusCodes.Status403Forbidden,
+                _ => StatusCodes.Status500InternalServerError,
+            };
             context.Response.ContentType = "application/json";
 
             var payload = new

@@ -1,5 +1,6 @@
 using ChartBuilder.Api.Extensions;
 using ChartBuilder.Api.Middleware;
+using ChartBuilder.Api.Services;
 using ChartBuilder.Application;
 using FluentValidation;
 using FluentValidation.AspNetCore;
@@ -28,12 +29,26 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("VueFrontend", policy =>
     {
-        var allowedOrigins = builder.Configuration
+        var configuredOrigins = builder.Configuration
             .GetSection("Cors:AllowedOrigins")
             .Get<string[]>() ?? ["http://localhost:5173"];
 
+        var allowedOrigins = configuredOrigins
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
         policy
             .WithOrigins(allowedOrigins)
+            .SetIsOriginAllowed(origin =>
+            {
+                if (!Uri.TryCreate(origin, UriKind.Absolute, out var parsedOrigin))
+                {
+                    return false;
+                }
+
+                return parsedOrigin.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                    || parsedOrigin.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase);
+            })
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
@@ -69,12 +84,19 @@ builder.Services.AddSwaggerGen(options =>
 });
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("AdminOnly", policy => policy.RequireRole(UserRole.Admin.ToString()));
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireRole(UserRole.Admin.ToString(), UserRole.SuperAdmin.ToString()));
 });
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);
+builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<IOwnershipValidationService, OwnershipValidationService>();
+builder.Services.AddScoped<IChartService, ChartService>();
+builder.Services.AddScoped<IProjectService, ProjectService>();
+builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IReportService, ReportService>();
 
 var app = builder.Build();
 

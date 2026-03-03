@@ -2,8 +2,17 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import ChartBuilderPage from '../pages/ChartBuilderPage.vue'
 import DashboardBuilderPage from '../pages/DashboardBuilderPage.vue'
 import ReportBuilderPage from '../pages/ReportBuilderPage.vue'
+import AdminDashboard from '../pages/AdminDashboard.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import { useAuthStore } from '../stores/auth'
+
+declare module 'vue-router' {
+    interface RouteMeta {
+        requiresAuth?: boolean
+        hideNav?: boolean
+        roles?: string[]
+    }
+}
 
 const routes = [
     {
@@ -32,6 +41,12 @@ const routes = [
         name: 'report-builder',
         component: ReportBuilderPage,
         meta: { requiresAuth: true }
+    },
+    {
+        path: '/admin',
+        name: 'admin-dashboard',
+        component: AdminDashboard,
+        meta: { requiresAuth: true, roles: ['Admin', 'SuperAdmin'] }
     }
 ]
 
@@ -52,6 +67,17 @@ router.beforeEach((to, _from, next) => {
     if (to.meta.requiresAuth && !isAuthenticated) {
         next('/login')
         return
+    }
+
+    const requiredRoles = to.meta.roles
+    if (requiredRoles && requiredRoles.length > 0) {
+        const userRole = authStore.userRole
+        const isAllowed = requiredRoles.some((role) => role.toLowerCase() === userRole.toLowerCase())
+
+        if (!isAllowed) {
+            next('/dashboard')
+            return
+        }
     }
 
     next()

@@ -1,11 +1,10 @@
 using System.Security.Claims;
 using System.Text.Json;
+using ChartBuilder.Api.Services;
 using ChartBuilder.Application.Charts.Dtos;
 using ChartBuilder.Domain.Entities;
-using ChartBuilder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace ChartBuilder.Api.Controllers;
 
@@ -14,14 +13,19 @@ namespace ChartBuilder.Api.Controllers;
 [Route("api/[controller]")]
 public sealed class ChartsController : ControllerBase
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IOwnershipValidationService _ownershipValidationService;
+    private readonly IChartService _chartService;
 
-    public ChartsController(AppDbContext dbContext)
+    public ChartsController(
+        IOwnershipValidationService ownershipValidationService,
+        IChartService chartService)
     {
-        _dbContext = dbContext;
+        _ownershipValidationService = ownershipValidationService;
+        _chartService = chartService;
     }
 
     [HttpGet]
+    [Authorize(Roles = "SuperAdmin,Admin,Statistician,Reviewer,Viewer")]
     public async Task<ActionResult<IReadOnlyList<Chart>>> Get(CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -29,15 +33,13 @@ public sealed class ChartsController : ControllerBase
             return Unauthorized();
         }
 
-        var charts = await _dbContext.Charts
-            .Where(chart => chart.Project != null && chart.Project.UserId == userId)
-            .OrderByDescending(chart => chart.UpdatedAt)
-            .ToListAsync(cancellationToken);
+        var charts = await _ownershipValidationService.GetOwnedChartsAsync(userId, cancellationToken);
 
         return Ok(charts);
     }
 
     [HttpGet("{id:guid}")]
+    [Authorize(Roles = "SuperAdmin,Admin,Statistician,Reviewer,Viewer")]
     public async Task<ActionResult<Chart>> GetById(Guid id, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -45,8 +47,7 @@ public sealed class ChartsController : ControllerBase
             return Unauthorized();
         }
 
-        var chart = await _dbContext.Charts
-            .FirstOrDefaultAsync(candidate => candidate.Id == id && candidate.Project != null && candidate.Project.UserId == userId, cancellationToken);
+        var chart = await _ownershipValidationService.GetOwnedChartAsync(userId, id, includeProject: false, cancellationToken);
 
         if (chart is null)
         {
@@ -57,6 +58,7 @@ public sealed class ChartsController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "SuperAdmin,Admin,Statistician")]
     public async Task<ActionResult<Chart>> Post([FromBody] CreateChartDto request, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -69,28 +71,20 @@ public sealed class ChartsController : ControllerBase
             return BadRequest(new { message = errorMessage });
         }
 
-        var ownsProject = await _dbContext.Projects
-            .AnyAsync(project => project.Id == request.ProjectId && project.UserId == userId, cancellationToken);
+        var ownsProject = await _ownershipValidationService.OwnsProjectAsync(userId, request.ProjectId, cancellationToken);
 
         if (!ownsProject)
         {
             return BadRequest(new { message = "Invalid project id." });
         }
 
-        var chart = new Chart(
-            name: request.Name.Trim(),
-            chartType: request.ChartType.Trim(),
-            configuration: request.Configuration.Trim(),
-            dataset: request.Dataset.Trim(),
-            projectId: request.ProjectId);
-
-        await _dbContext.Charts.AddAsync(chart, cancellationToken);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        var chart = await _chartService.CreateAsync(userId, request, cancellationToken);
 
         return CreatedAtAction(nameof(GetById), new { id = chart.Id }, chart);
     }
 
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = "SuperAdmin,Admin,Statistician,Reviewer,Viewer")]
     public async Task<ActionResult<Chart>> Put(Guid id, [FromBody] UpdateChartDto request, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -103,27 +97,17 @@ public sealed class ChartsController : ControllerBase
             return BadRequest(new { message = errorMessage });
         }
 
-        var chart = await _dbContext.Charts
-            .Include(candidate => candidate.Project)
-            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
-
-        if (chart is null || chart.Project is null || chart.Project.UserId != userId)
+        var chart = await _chartService.UpdateAsync(userId, id, request, cancellationToken);
+        if (chart is null)
         {
             return NotFound();
         }
-
-        chart.UpdateDetails(
-            name: request.Name.Trim(),
-            chartType: request.ChartType.Trim(),
-            configuration: request.Configuration.Trim(),
-            dataset: request.Dataset.Trim());
-
-        await _dbContext.SaveChangesAsync(cancellationToken);
 
         return Ok(chart);
     }
 
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "SuperAdmin,Admin,Statistician,Reviewer,Viewer")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -131,19 +115,36 @@ public sealed class ChartsController : ControllerBase
             return Unauthorized();
         }
 
-        var chart = await _dbContext.Charts
-            .Include(candidate => candidate.Project)
-            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
-
-        if (chart is null || chart.Project is null || chart.Project.UserId != userId)
+        var deleted = await _chartService.DeleteAsync(userId, id, cancellationToken);
+        if (!deleted)
         {
             return NotFound();
         }
 
-        _dbContext.Charts.Remove(chart);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
         return Ok();
+    }
+
+    [HttpPut("{id:guid}/status")]
+    [Authorize(Roles = "SuperAdmin,Admin,Reviewer")]
+    public async Task<ActionResult<Chart>> UpdateStatus(Guid id, [FromBody] UpdateChartStatusDto request, CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        if (!TryGetUserRole(out var userRole))
+        {
+            return Unauthorized();
+        }
+
+        var chart = await _chartService.UpdateStatusAsync(userId, userRole, id, request.Status, cancellationToken);
+        if (chart is null)
+        {
+            return NotFound();
+        }
+
+        return Ok(chart);
     }
 
     private static bool IsValidCreateRequest(CreateChartDto request, out string message)
@@ -237,5 +238,11 @@ public sealed class ChartsController : ControllerBase
             ?? User.FindFirstValue("sub");
 
         return Guid.TryParse(claimValue, out userId);
+    }
+
+    private bool TryGetUserRole(out UserRole userRole)
+    {
+        var roleClaim = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role");
+        return Enum.TryParse(roleClaim, true, out userRole);
     }
 }

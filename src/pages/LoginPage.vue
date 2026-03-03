@@ -56,18 +56,25 @@ async function handleLogin(): Promise<void> {
     const response = await authService.login(form.email.trim(), form.password)
     const token = typeof response.token === 'string' ? response.token : ''
     const fallbackEmail = form.email.trim()
-    const responseUser = response.user as { email?: string } | undefined
+    const responseUser = response.user as { email?: string; role?: string } | undefined
     const responseEmail =
       typeof responseUser?.email === 'string'
         ? responseUser.email
         : typeof response.Email === 'string'
           ? response.Email
           : fallbackEmail
+    const responseRole =
+      typeof responseUser?.role === 'string'
+        ? responseUser.role
+        : typeof response.Role === 'string'
+          ? response.Role
+          : ''
 
     authStore.login({
       token,
       user: {
         email: responseEmail,
+        role: responseRole,
       },
     })
     console.log('[LoginPage] login success, navigating to /dashboard')
@@ -104,7 +111,7 @@ function handleDevelopmentSkip(): void {
           </svg>
           <div>
             <p class="brand-name">ECAStats Chartbuilder</p>
-            <p class="brand-sub">Powerful dashboards, stunning charts, and insightful reports.</p>
+            <p class="brand-sub">Secure Statistical Visualization & Publication Infrastructure.</p>
           </div>
         </div>
         <div class="brand-copy">
