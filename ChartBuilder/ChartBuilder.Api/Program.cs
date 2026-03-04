@@ -8,11 +8,28 @@ using ChartBuilder.Domain.Entities;
 using ChartBuilder.Infrastructure;
 using ChartBuilder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
+using System.Data;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var configuredUrls = builder.Configuration["Urls"]
+    ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
+
+if (builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(configuredUrls))
+{
+    builder.WebHost.UseUrls("http://127.0.0.1:0");
+}
+
+var resolvedDefaultConnection = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(resolvedDefaultConnection))
+{
+    resolvedDefaultConnection = "Server=(localdb)\\MSSQLLocalDB;Database=ChartBuilderDb;Trusted_Connection=True;TrustServerCertificate=True;";
+    builder.Configuration["ConnectionStrings:DefaultConnection"] = resolvedDefaultConnection;
+}
 
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
@@ -90,7 +107,23 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlServer(resolvedDefaultConnection));
 builder.Services.AddJwtAuthentication(builder.Configuration);
+var httpsPort = builder.Configuration.GetValue<int?>("HttpsRedirection:HttpsPort");
+var enableHttpsRedirection = builder.Configuration.GetValue<bool?>("HttpsRedirection:Enabled")
+    ?? (!builder.Environment.IsDevelopment() && httpsPort.HasValue);
+if (enableHttpsRedirection)
+{
+    builder.Services.AddHttpsRedirection(options =>
+    {
+        if (httpsPort.HasValue)
+        {
+            options.HttpsPort = httpsPort.Value;
+        }
+    });
+}
+
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IOwnershipValidationService, OwnershipValidationService>();
 builder.Services.AddScoped<IChartService, ChartService>();
@@ -99,6 +132,7 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 
 var app = builder.Build();
+var enableSwagger = builder.Configuration.GetValue("Swagger:Enabled", true);
 
 using (var scope = app.Services.CreateScope())
 {
@@ -107,7 +141,43 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await dbContext.Database.MigrateAsync();
+        dbContext.Database.SetConnectionString(resolvedDefaultConnection);
+
+        var connection = dbContext.Database.GetDbConnection();
+        if (string.IsNullOrWhiteSpace(connection.ConnectionString))
+        {
+            connection.ConnectionString = resolvedDefaultConnection;
+        }
+
+        var shouldRunMigrations = true;
+        try
+        {
+            var migrationsHistoryExists = await TableExistsAsync(dbContext, "__EFMigrationsHistory");
+            var usersTableExists = await TableExistsAsync(dbContext, "Users");
+
+            if (!migrationsHistoryExists && usersTableExists)
+            {
+                shouldRunMigrations = false;
+                logger.LogWarning("Skipping EF migrations because table 'Users' exists but '__EFMigrationsHistory' does not. Database appears pre-initialized outside EF migrations.");
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogDebug(exception, "Could not inspect database schema. Falling back to running EF migrations.");
+        }
+
+        if (shouldRunMigrations)
+        {
+            try
+            {
+                await dbContext.Database.MigrateAsync();
+            }
+            catch (SqlException exception) when (exception.Number == 2714
+                && exception.Message.Contains("Users", StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogWarning("Skipping EF migrations because table 'Users' already exists in a database that appears pre-initialized outside EF migrations.");
+            }
+        }
 
         var adminExists = await dbContext.Users.AnyAsync(user => user.Role == UserRole.Admin);
         if (!adminExists)
@@ -136,7 +206,7 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-if (app.Environment.IsDevelopment())
+if (enableSwagger)
 {
     app.UseSwagger();
     app.UseSwaggerUI();
@@ -145,7 +215,11 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseSerilogRequestLogging();
 
-app.UseHttpsRedirection();
+if (enableHttpsRedirection)
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseCors("VueFrontend");
 
 app.UseAuthentication();
@@ -154,3 +228,28 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static async Task<bool> TableExistsAsync(AppDbContext dbContext, string tableName)
+{
+    var connection = dbContext.Database.GetDbConnection();
+    if (connection.State != ConnectionState.Open)
+    {
+        await connection.OpenAsync();
+    }
+
+    await using var command = connection.CreateCommand();
+    command.CommandText = @"
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_NAME = @tableName
+        ) THEN 1 ELSE 0 END";
+
+    var parameter = command.CreateParameter();
+    parameter.ParameterName = "@tableName";
+    parameter.Value = tableName;
+    command.Parameters.Add(parameter);
+
+    var result = await command.ExecuteScalarAsync();
+    return result is int exists && exists == 1;
+}
