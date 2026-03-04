@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\Chart-Builder\\Chart-Builder-1\\chartbuilder\\ChartBuilder.Domain\\ChartBuilder.Domain.csproj": {}
+    "D:\\Chart-Builder\\Chart-Builder-1\\ChartBuilder\\ChartBuilder.Domain\\ChartBuilder.Domain.csproj": {}
   },
   "projects": {
-    "D:\\Chart-Builder\\Chart-Builder-1\\chartbuilder\\ChartBuilder.Domain\\ChartBuilder.Domain.csproj": {
+    "D:\\Chart-Builder\\Chart-Builder-1\\ChartBuilder\\ChartBuilder.Domain\\ChartBuilder.Domain.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\Chart-Builder\\Chart-Builder-1\\chartbuilder\\ChartBuilder.Domain\\ChartBuilder.Domain.csproj",
+        "projectUniqueName": "D:\\Chart-Builder\\Chart-Builder-1\\ChartBuilder\\ChartBuilder.Domain\\ChartBuilder.Domain.csproj",
         "projectName": "ChartBuilder.Domain",
-        "projectPath": "D:\\Chart-Builder\\Chart-Builder-1\\chartbuilder\\ChartBuilder.Domain\\ChartBuilder.Domain.csproj",
+        "projectPath": "D:\\Chart-Builder\\Chart-Builder-1\\ChartBuilder\\ChartBuilder.Domain\\ChartBuilder.Domain.csproj",
         "packagesPath": "C:\\Users\\yotadesse\\.nuget\\packages\\",
-        "outputPath": "D:\\Chart-Builder\\Chart-Builder-1\\chartbuilder\\ChartBuilder.Domain\\obj\\",
+        "outputPath": "D:\\Chart-Builder\\Chart-Builder-1\\ChartBuilder\\ChartBuilder.Domain\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\yotadesse\\AppData\\Roaming\\NuGet\\NuGet.Config"

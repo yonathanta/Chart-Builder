@@ -1,4 +1,6 @@
 using ChartBuilder.Domain.Entities;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace ChartBuilder.Infrastructure.Persistence;
@@ -98,5 +100,26 @@ public sealed class AppDbContext : DbContext
         });
 
         base.OnModelCreating(modelBuilder);
+    }
+}
+
+public sealed class ApplicationDbContext : IdentityDbContext<ApplicationUser, IdentityRole, string>
+{
+    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options)
+    {
+    }
+
+    protected override void OnModelCreating(ModelBuilder builder)
+    {
+        base.OnModelCreating(builder);
+
+        builder.Entity<ApplicationUser>(entity =>
+        {
+            entity.Property(user => user.IsApproved)
+                .HasDefaultValue(false);
+
+            entity.Property(user => user.CreatedAt)
+                .HasDefaultValueSql("GETUTCDATE()");
+        });
     }
 }

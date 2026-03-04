@@ -21,7 +21,7 @@ var configuredUrls = builder.Configuration["Urls"]
 
 if (builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(configuredUrls))
 {
-    builder.WebHost.UseUrls("http://127.0.0.1:0");
+    builder.WebHost.UseUrls("http://localhost:5000");
 }
 
 var resolvedDefaultConnection = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -99,6 +99,8 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 });
+builder.Services.AddAuthentication();
+builder.Services.AddAuthorization();
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("AdminOnly", policy =>
@@ -107,8 +109,20 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(resolvedDefaultConnection));
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(resolvedDefaultConnection));
+
+builder.Services
+    .AddIdentityCore<ApplicationUser>(options =>
+    {
+        options.User.RequireUniqueEmail = true;
+    })
+    .AddRoles<IdentityRole>()
+    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddDefaultTokenProviders();
+
 builder.Services.AddJwtAuthentication(builder.Configuration);
 var httpsPort = builder.Configuration.GetValue<int?>("HttpsRedirection:HttpsPort");
 var enableHttpsRedirection = builder.Configuration.GetValue<bool?>("HttpsRedirection:Enabled")
@@ -140,6 +154,13 @@ using (var scope = app.Services.CreateScope())
 
     try
     {
+        var identityDbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        identityDbContext.Database.SetConnectionString(resolvedDefaultConnection);
+        await identityDbContext.Database.MigrateAsync();
+
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+        await RoleSeeder.SeedAsync(roleManager);
+
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         dbContext.Database.SetConnectionString(resolvedDefaultConnection);
 

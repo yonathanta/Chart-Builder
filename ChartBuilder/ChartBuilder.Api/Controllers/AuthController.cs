@@ -33,9 +33,10 @@ public sealed class AuthController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.Email) ||
             string.IsNullOrWhiteSpace(request.Password) ||
-            string.IsNullOrWhiteSpace(request.FullName))
+            string.IsNullOrWhiteSpace(request.FirstName) ||
+            string.IsNullOrWhiteSpace(request.LastName))
         {
-            return BadRequest(new { error = "Email, password, and full name are required." });
+            return BadRequest(new { error = "Email, password, first name, and last name are required." });
         }
 
         try
@@ -52,7 +53,7 @@ public sealed class AuthController : ControllerBase
             var user = new User(
                 email: request.Email.Trim(),
                 passwordHash: string.Empty,
-                fullName: request.FullName.Trim(),
+                fullName: $"{request.FirstName.Trim()} {request.LastName.Trim()}".Trim(),
                 role: UserRole.Viewer,
                 isActive: true);
 

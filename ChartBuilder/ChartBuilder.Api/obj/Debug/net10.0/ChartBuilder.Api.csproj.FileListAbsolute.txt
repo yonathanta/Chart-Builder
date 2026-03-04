@@ -233,3 +233,4 @@ D:\Chart-Builder\Chart-Builder-1\chartbuilder\ChartBuilder.Api\obj\Debug\net10.0
 D:\Chart-Builder\Chart-Builder-1\chartbuilder\ChartBuilder.Api\obj\Debug\net10.0\ChartBuilder.Api.pdb
 D:\Chart-Builder\Chart-Builder-1\chartbuilder\ChartBuilder.Api\obj\Debug\net10.0\ChartBuilder.Api.genruntimeconfig.cache
 D:\Chart-Builder\Chart-Builder-1\chartbuilder\ChartBuilder.Api\obj\Debug\net10.0\ref\ChartBuilder.Api.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\Microsoft.AspNetCore.Identity.EntityFrameworkCore.dll

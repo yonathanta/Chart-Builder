@@ -93,6 +93,10 @@ async function handleLogin(): Promise<void> {
 function handleDevelopmentSkip(): void {
   router.push('/dashboard')
 }
+
+function goToRegister(): void {
+  router.push('/register')
+}
 </script>
 
 <template>
@@ -166,7 +170,7 @@ function handleDevelopmentSkip(): void {
           </form>
 
           <p class="signup-text">
-            Don't have an account? <button type="button" class="link-button">Create one</button>
+            Don't have an account? <button type="button" class="link-button" @click="goToRegister">Create one</button>
           </p>
           <button type="button" class="skip-link" @click="handleDevelopmentSkip">
             Skip for now (Development Mode)

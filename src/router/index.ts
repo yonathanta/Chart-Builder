@@ -4,6 +4,7 @@ import DashboardBuilderPage from '../pages/DashboardBuilderPage.vue'
 import ReportBuilderPage from '../pages/ReportBuilderPage.vue'
 import AdminDashboard from '../pages/AdminDashboard.vue'
 import LoginPage from '../pages/LoginPage.vue'
+import RegisterPage from '../pages/RegisterPage.vue'
 import { useAuthStore } from '../stores/auth'
 
 declare module 'vue-router' {
@@ -19,6 +20,15 @@ const routes = [
         path: '/login',
         name: 'login',
         component: LoginPage,
+        meta: {
+            requiresAuth: false,
+            hideNav: true
+        }
+    },
+    {
+        path: '/register',
+        name: 'register',
+        component: RegisterPage,
         meta: {
             requiresAuth: false,
             hideNav: true
