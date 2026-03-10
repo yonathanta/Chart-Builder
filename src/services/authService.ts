@@ -19,15 +19,21 @@ function persistAuthData(data: AuthResponse): void {
     return;
   }
 
-  const hasFlatUserData = data.UserId !== undefined || data.Email !== undefined || data.Role !== undefined;
+  const hasFlatUserData =
+    data.userId !== undefined ||
+    data.email !== undefined ||
+    data.role !== undefined ||
+    data.UserId !== undefined ||
+    data.Email !== undefined ||
+    data.Role !== undefined;
   if (hasFlatUserData) {
     localStorage.setItem(
       USER_KEY,
       JSON.stringify({
-        userId: data.UserId,
-        email: data.Email,
-        role: data.Role,
-        expiresAtUtc: data.ExpiresAtUtc,
+        userId: data.userId ?? data.UserId,
+        email: data.email ?? data.Email,
+        role: data.role ?? data.Role,
+        expiresAtUtc: data.expiresAtUtc ?? data.ExpiresAtUtc,
       })
     );
   }

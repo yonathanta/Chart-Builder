@@ -60,12 +60,16 @@ async function handleLogin(): Promise<void> {
     const responseEmail =
       typeof responseUser?.email === 'string'
         ? responseUser.email
+        : typeof response.email === 'string'
+          ? response.email
         : typeof response.Email === 'string'
           ? response.Email
           : fallbackEmail
     const responseRole =
       typeof responseUser?.role === 'string'
         ? responseUser.role
+        : typeof response.role === 'string'
+          ? response.role
         : typeof response.Role === 'string'
           ? response.Role
           : ''

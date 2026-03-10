@@ -17,12 +17,17 @@ namespace ChartBuilder.Api.Controllers;
 public sealed class AuthController : ControllerBase
 {
     private readonly AppDbContext _dbContext;
+    private readonly UserManager<ApplicationUser> _userManager;
     private readonly IConfiguration _configuration;
     private readonly PasswordHasher<User> _passwordHasher;
 
-    public AuthController(AppDbContext dbContext, IConfiguration configuration)
+    public AuthController(
+        AppDbContext dbContext,
+        UserManager<ApplicationUser> userManager,
+        IConfiguration configuration)
     {
         _dbContext = dbContext;
+        _userManager = userManager;
         _configuration = configuration;
         _passwordHasher = new PasswordHasher<User>();
     }
@@ -83,6 +88,29 @@ public sealed class AuthController : ControllerBase
         try
         {
             var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+
+            var identityUser = await _userManager.FindByEmailAsync(normalizedEmail);
+            if (identityUser is not null)
+            {
+                var passwordValid = await _userManager.CheckPasswordAsync(identityUser, request.Password);
+                if (!passwordValid)
+                {
+                    return Unauthorized(new { error = "Invalid credentials." });
+                }
+
+                if (!identityUser.IsApproved)
+                {
+                    return Unauthorized(new { error = "Your account is pending admin approval." });
+                }
+
+                var userRoles = await _userManager.GetRolesAsync(identityUser);
+                var role = userRoles.FirstOrDefault(roleName => !string.Equals(roleName, "Pending", StringComparison.OrdinalIgnoreCase))
+                    ?? userRoles.FirstOrDefault()
+                    ?? UserRole.Viewer.ToString();
+
+                var identityResponse = BuildAuthResponse(identityUser, role);
+                return Ok(identityResponse);
+            }
 
             var user = await _dbContext.Users
                 .FirstOrDefaultAsync(candidate => candidate.Email.ToLower() == normalizedEmail, cancellationToken);
@@ -150,6 +178,53 @@ public sealed class AuthController : ControllerBase
             UserId = user.Id,
             Email = user.Email,
             Role = user.Role.ToString()
+        };
+    }
+
+    private AuthResponseDto BuildAuthResponse(ApplicationUser user, string role)
+    {
+        var issuer = _configuration["Jwt:Issuer"] ?? string.Empty;
+        var audience = _configuration["Jwt:Audience"] ?? string.Empty;
+        var secretKey = _configuration["Jwt:SecretKey"] ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(audience) || string.IsNullOrWhiteSpace(secretKey))
+        {
+            throw new InvalidOperationException("JWT configuration is missing. Set Jwt:Issuer, Jwt:Audience, and Jwt:SecretKey.");
+        }
+
+        if (!Guid.TryParse(user.Id, out var userId))
+        {
+            throw new InvalidOperationException("User id format is invalid.");
+        }
+
+        var expiresAt = DateTime.UtcNow.AddHours(1);
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, user.Id),
+            new(ClaimTypes.NameIdentifier, user.Id),
+            new(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
+            new(ClaimTypes.Role, role),
+            new("role", role)
+        };
+
+        var credentials = new SigningCredentials(
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+            SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: issuer,
+            audience: audience,
+            claims: claims,
+            expires: expiresAt,
+            signingCredentials: credentials);
+
+        return new AuthResponseDto
+        {
+            Token = new JwtSecurityTokenHandler().WriteToken(token),
+            ExpiresAtUtc = expiresAt,
+            UserId = userId,
+            Email = user.Email ?? string.Empty,
+            Role = role
         };
     }
 }

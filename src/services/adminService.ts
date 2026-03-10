@@ -6,6 +6,17 @@ export type AdminUser = {
   fullName?: string;
   role: string;
   isActive: boolean;
+  isApproved?: boolean;
+  createdAt?: string;
+};
+
+export type PendingRegistration = {
+  id: string;
+  email: string;
+  fullName?: string;
+  department?: string;
+  jobTitle?: string;
+  isApproved: boolean;
   createdAt?: string;
 };
 
@@ -45,6 +56,16 @@ export async function updateUserStatus(id: string, isActive: boolean): Promise<A
   return response.data;
 }
 
+export async function getPendingRegistrations(): Promise<PendingRegistration[]> {
+  const response = await api.get<PendingRegistration[]>('/admin/pending-registrations');
+  return response.data;
+}
+
+export async function approveUser(id: string): Promise<AdminUser> {
+  const response = await api.put<AdminUser>(`/admin/users/${id}/approve`);
+  return response.data;
+}
+
 export async function getAuditLogs(): Promise<AuditLogItem[]> {
   const response = await api.get<AuditLogItem[]>('/admin/audit-logs');
   return response.data;
@@ -59,6 +80,8 @@ const adminService = {
   getUsers,
   updateUserRole,
   updateUserStatus,
+  getPendingRegistrations,
+  approveUser,
   getAuditLogs,
   getProjects,
 };

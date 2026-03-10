@@ -2,14 +2,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import adminService, { type AdminUser, type AuditLogItem } from '../services/adminService'
+import adminService, { type AdminUser, type AuditLogItem, type PendingRegistration } from '../services/adminService'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
 const users = ref<AdminUser[]>([])
+const pendingRegistrations = ref<PendingRegistration[]>([])
 const auditLogs = ref<AuditLogItem[]>([])
 const isLoadingUsers = ref(false)
+const isLoadingPending = ref(false)
 const isLoadingLogs = ref(false)
 const errorMessage = ref('')
 
@@ -47,6 +49,19 @@ async function loadAuditLogs(): Promise<void> {
   }
 }
 
+async function loadPendingRegistrations(): Promise<void> {
+  isLoadingPending.value = true
+
+  try {
+    pendingRegistrations.value = await adminService.getPendingRegistrations()
+  } catch (error) {
+    console.error('Failed to load pending registrations', error)
+    errorMessage.value = 'Failed to load pending registrations.'
+  } finally {
+    isLoadingPending.value = false
+  }
+}
+
 async function changeUserRole(user: AdminUser, role: string): Promise<void> {
   try {
     const updated = await adminService.updateUserRole(user.id, role)
@@ -67,6 +82,17 @@ async function toggleUserStatus(user: AdminUser): Promise<void> {
   }
 }
 
+async function approveRegistration(user: PendingRegistration): Promise<void> {
+  try {
+    await adminService.approveUser(user.id)
+    pendingRegistrations.value = pendingRegistrations.value.filter((entry) => entry.id !== user.id)
+    await loadUsers()
+  } catch (error) {
+    console.error('Failed to approve registration', error)
+    errorMessage.value = 'Failed to approve registration.'
+  }
+}
+
 function formatDate(value: string): string {
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
@@ -78,7 +104,7 @@ onMounted(async () => {
     return
   }
 
-  await Promise.all([loadUsers(), loadAuditLogs()])
+  await Promise.all([loadUsers(), loadPendingRegistrations(), loadAuditLogs()])
 })
 </script>
 
@@ -92,6 +118,38 @@ onMounted(async () => {
     <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
 
     <section class="panel">
+      <h2>Pending Registrations</h2>
+      <p v-if="isLoadingPending" class="muted">Loading pending registrations...</p>
+      <table v-else class="table">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Name</th>
+            <th>Department</th>
+            <th>Job Title</th>
+            <th>Requested At</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="user in pendingRegistrations" :key="user.id">
+            <td>{{ user.email }}</td>
+            <td>{{ user.fullName || '-' }}</td>
+            <td>{{ user.department || '-' }}</td>
+            <td>{{ user.jobTitle || '-' }}</td>
+            <td>{{ user.createdAt ? formatDate(user.createdAt) : '-' }}</td>
+            <td>
+              <button class="btn" @click="approveRegistration(user)">Approve</button>
+            </td>
+          </tr>
+          <tr v-if="pendingRegistrations.length === 0">
+            <td colspan="6" class="muted">No pending registrations.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
       <h2>Users</h2>
       <p v-if="isLoadingUsers" class="muted">Loading users...</p>
       <table v-else class="table">
@@ -100,6 +158,7 @@ onMounted(async () => {
             <th>Email</th>
             <th>Name</th>
             <th>Role</th>
+            <th>Approved</th>
             <th>Status</th>
             <th>Actions</th>
           </tr>
@@ -113,6 +172,7 @@ onMounted(async () => {
                 <option v-for="role in roleOptions" :key="role" :value="role">{{ role }}</option>
               </select>
             </td>
+            <td>{{ user.isApproved === true ? 'Yes' : user.isApproved === false ? 'No' : '-' }}</td>
             <td>{{ user.isActive ? 'Active' : 'Inactive' }}</td>
             <td>
               <button class="btn" @click="toggleUserStatus(user)">
