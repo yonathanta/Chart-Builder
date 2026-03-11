@@ -32,7 +32,7 @@ function handleLogin(): void {
     token: 'fake-auth-token',
     user: { email: form.email.trim() },
   })
-  router.push('/dashboard')
+  router.push('/')
 }
 
 function handleDevelopmentSkip(): void {
@@ -40,7 +40,7 @@ function handleDevelopmentSkip(): void {
     token: 'mock-dev-token',
     user: { email: 'dev@local.test' },
   })
-  router.push('/dashboard')
+  router.push('/')
 }
 </script>
 

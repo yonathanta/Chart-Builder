@@ -81,9 +81,9 @@ async function handleLogin(): Promise<void> {
         role: responseRole,
       },
     })
-    console.log('[LoginPage] login success, navigating to /dashboard')
+    console.log('[LoginPage] login success, navigating to /')
 
-    await router.push('/dashboard')
+    await router.push('/')
     console.log('[LoginPage] navigation complete')
   } catch (error) {
     console.error('[LoginPage] login failed', error)

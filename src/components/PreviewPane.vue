@@ -628,8 +628,7 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="preview__surface">
-      <div class="preview__status-bar" v-if="status || error">
-        <p v-if="status" class="status-text">{{ status }}</p>
+      <div class="preview__status-bar" v-if="error">
         <p v-if="error" class="alert-text">{{ error }}</p>
       </div>
 

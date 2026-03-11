@@ -878,11 +878,13 @@ function triggerLoadProject() {
 
 .preview__status-bar {
   margin-bottom: 12px;
+  display: none;
 }
 .status-text {
   font-size: 12px;
   color: #0ea5e9;
   margin: 0;
+  display: none;
 }
 .alert-text {
   font-size: 12px;
@@ -1194,7 +1196,13 @@ function triggerLoadProject() {
 .step-body {
   flex: 1;
   padding: 20px;
-  overflow-y: auto;
+  overflow-y: visible;
+}
+
+.layout__side {
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 
 .step-footer {
