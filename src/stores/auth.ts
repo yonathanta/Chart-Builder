@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 interface AuthUser {
+    id?: string
     email: string
     role?: string
 }
@@ -37,6 +38,7 @@ export const useAuthStore = defineStore('auth', () => {
                 session.value = {
                     token: savedToken,
                     user: {
+                        id: parsedUser.id,
                         email: parsedUser.email ?? '',
                         role: parsedUser.role
                     }

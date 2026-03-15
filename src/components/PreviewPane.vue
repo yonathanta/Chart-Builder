@@ -585,6 +585,7 @@ function renderWithCurrentRows() {
 
 defineExpose({
   rows,
+  filteredRows,
   activeFilters,
   totalFiltered,
   clearValueFilter,

@@ -1,360 +1,618 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useProjectStore, type Chart } from '../stores/projectStore'
+import { computed, onMounted, ref, watch } from 'vue'
+import DashboardSelectionBar from '../components/dashboard-builder/DashboardSelectionBar.vue'
+import DashboardLayoutGrid, { type GridChartItem } from '../components/dashboard-builder/DashboardLayoutGrid.vue'
 import ChartRenderer from '../components/ChartRenderer.vue'
+import dashboardService, { type DashboardChartLayout, type DashboardRecord } from '../services/dashboardService'
+import projectService, { type ProjectRecord } from '../services/projectService'
+import chartService from '../services/chartService'
+import datasetService from '../services/datasetService'
+import { useProjectStore } from '../stores/projectStore'
+
+type ApiChart = {
+  id?: string
+  Id?: string
+  name?: string
+  Name?: string
+  chartType?: string
+  ChartType?: string
+  configJson?: string
+  ConfigJson?: string
+  styleJson?: string
+  StyleJson?: string
+  datasetId?: string
+  DatasetId?: string
+  projectId?: string
+  ProjectId?: string
+  configuration?: string
+  Configuration?: string
+  dataset?: string
+  Dataset?: string
+}
+
+type ProjectChartOption = {
+  id: string
+  name: string
+  chartType: string
+  previewChart: {
+    id: string
+    type: string
+    config: unknown
+    dataset: unknown
+  } | null
+}
 
 const projectStore = useProjectStore()
-const currentDashboard = ref<{
-  name: string;
-  layout: any[];
-}>({
-  name: 'New Dashboard',
-  layout: []
+
+const projects = ref<ProjectRecord[]>([])
+const dashboards = ref<DashboardRecord[]>([])
+const availableCharts = ref<ProjectChartOption[]>([])
+const selectedProjectId = ref('')
+const selectedDashboardId = ref('')
+const gridItems = ref<GridChartItem[]>([])
+const initialSnapshot = ref<Map<string, string>>(new Map())
+
+const loading = ref(false)
+const saving = ref(false)
+const message = ref('')
+
+const hasPendingLayoutChanges = computed(() => {
+  return gridItems.value.some((item) => {
+    const snapshot = initialSnapshot.value.get(item.layoutId)
+    const current = `${item.x}:${item.y}:${item.w}:${item.h}`
+    return snapshot !== current
+  })
 })
 
-const availableCharts = computed(() => {
-  if (!projectStore.currentProject) return []
-  return projectStore.loadChartsByProject(projectStore.currentProject.id)
-})
-
-const dashboardName = ref('New Dashboard')
-
-function addChartToDashboard(chart: any) {
-  const newItem = {
-    id: crypto.randomUUID(),
-    chartId: chart.id,
-    x: 0,
-    y: (currentDashboard.value.layout.length * 4) % 12, // Simple stacking
-    w: 6,
-    h: 4
-  }
-  currentDashboard.value.layout.push(newItem)
+function setMessage(text: string): void {
+  message.value = text
+  setTimeout(() => {
+    if (message.value === text) {
+      message.value = ''
+    }
+  }, 2500)
 }
 
-function handleSaveDashboard() {
-  if (!projectStore.currentProject) {
-    alert('Select a project first!')
+function parseJson(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
+async function resolveDataset(dataset: unknown): Promise<unknown> {
+  const parsed = parseJson(dataset)
+
+  if (typeof parsed === 'string' && parsed.startsWith('http')) {
+    try {
+      const response = await fetch(parsed)
+      const body = await response.json()
+      return (body as any)?.data ?? body
+    } catch {
+      return null
+    }
+  }
+
+  if (parsed && typeof parsed === 'object') {
+    const source = (parsed as any)?.query?.source
+    if (typeof source === 'string') {
+      try {
+        const response = await fetch(source)
+        const body = await response.json()
+        return (body as any)?.data ?? body
+      } catch {
+        return parsed
+      }
+    }
+  }
+
+  return parsed
+}
+
+async function resolveDatasetById(datasetId: string): Promise<unknown> {
+  try {
+    const dataset = await datasetService.getDataset(datasetId)
+    const parsed = parseJson(dataset.dataJson)
+
+    if (Array.isArray(parsed)) {
+      return parsed
+    }
+
+    if (parsed && typeof parsed === 'object') {
+      const wrapped = (parsed as { data?: unknown }).data
+      if (Array.isArray(wrapped)) {
+        return wrapped
+      }
+    }
+
+    return []
+  } catch {
+    return null
+  }
+}
+
+async function loadProjects(): Promise<void> {
+  loading.value = true
+  try {
+    projects.value = await projectService.getProjects()
+
+    if (projectStore.currentProject?.id) {
+      selectedProjectId.value = projectStore.currentProject.id
+    } else if (projects.value.length > 0) {
+      selectedProjectId.value = projects.value[0].id
+    }
+  } catch (error) {
+    console.error('Failed to load projects', error)
+    setMessage('Failed to load projects.')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadDashboards(projectId: string): Promise<void> {
+  if (!projectId) {
+    dashboards.value = []
+    selectedDashboardId.value = ''
+    gridItems.value = []
     return
   }
-  projectStore.saveDashboard(dashboardName.value, currentDashboard.value.layout)
-  alert('Dashboard saved!')
-}
 
-// Drag and drop logic (simplified)
-const draggedItem = ref<any>(null)
-
-function onDragStart(item: any, event: DragEvent) {
-  draggedItem.value = item
-  if (event.dataTransfer) {
-    event.dataTransfer.setData('text/plain', item.id)
-    event.dataTransfer.effectAllowed = 'move'
+  loading.value = true
+  try {
+    dashboards.value = await dashboardService.getDashboardsByProject(projectId)
+    selectedDashboardId.value = dashboards.value[0]?.id ?? ''
+  } catch (error) {
+    console.error('Failed to load dashboards', error)
+    dashboards.value = []
+    selectedDashboardId.value = ''
+    setMessage('Failed to load dashboards.')
+  } finally {
+    loading.value = false
   }
 }
 
-function onDrop(event: DragEvent) {
-  event.preventDefault()
-  if (!draggedItem.value) return
+async function loadCharts(projectId: string): Promise<void> {
+  if (!projectId) {
+    availableCharts.value = []
+    return
+  }
 
-  const grid = event.currentTarget as HTMLElement
-  const rect = grid.getBoundingClientRect()
-  const cellWidth = rect.width / 12
-  const cellHeight = 100 // Custom row height
+  try {
+    const response = await chartService.getCharts(projectId)
+    if (!Array.isArray(response)) {
+      availableCharts.value = []
+      return
+    }
 
-  const x = Math.floor((event.clientX - rect.left) / cellWidth)
-  const y = Math.floor((event.clientY - rect.top) / cellHeight)
+    const cards = await Promise.all(
+      response.map(async (item) => {
+        const chart = item as ApiChart
+        const chartId = String(chart.id ?? chart.Id ?? '')
+        const chartName = String(chart.name ?? chart.Name ?? 'Untitled chart')
+        const chartType = String(chart.chartType ?? chart.ChartType ?? 'unknown')
+        const configRaw = chart.configJson ?? chart.ConfigJson ?? chart.configuration ?? chart.Configuration ?? {}
+        const styleRaw = chart.styleJson ?? chart.StyleJson ?? {}
+        const datasetId = String(chart.datasetId ?? chart.DatasetId ?? '')
+        const datasetRaw = chart.dataset ?? chart.Dataset ?? {}
 
-  // Snap to grid
-  draggedItem.value.x = Math.max(0, Math.min(12 - draggedItem.value.w, x))
-  draggedItem.value.y = Math.max(0, y)
-  draggedItem.value = null
+        const parsedConfig = parseJson(configRaw)
+        const parsedStyle = parseJson(styleRaw)
+        const mergedConfig = parsedConfig && typeof parsedConfig === 'object'
+          ? {
+              ...(parsedConfig as Record<string, unknown>),
+              style: {
+                ...(((parsedConfig as Record<string, unknown>).style as Record<string, unknown> | undefined) ?? {}),
+                ...(parsedStyle && typeof parsedStyle === 'object' ? (parsedStyle as Record<string, unknown>) : {}),
+              },
+            }
+          : parsedConfig
+
+        const resolvedDataset = datasetId
+          ? await resolveDatasetById(datasetId)
+          : await resolveDataset(datasetRaw)
+
+        return {
+          id: chartId,
+          name: chartName,
+          chartType,
+          previewChart: {
+            id: chartId,
+            type: chartType,
+            config: mergedConfig,
+            dataset: resolvedDataset,
+          },
+        } satisfies ProjectChartOption
+      })
+    )
+
+    availableCharts.value = cards
+  } catch (error) {
+    console.error('Failed to load project charts', error)
+    availableCharts.value = []
+  }
 }
 
-function removeItem(id: string) {
-  currentDashboard.value.layout = currentDashboard.value.layout.filter(i => i.id !== id)
+async function hydrateGridItems(layouts: DashboardChartLayout[]): Promise<GridChartItem[]> {
+  const resolved = await Promise.all(
+    layouts.map(async (layout) => {
+      let chartPayload: GridChartItem['chart'] = null
+
+      try {
+        const response = (await chartService.getChart(layout.chartId)) as ApiChart
+        const chartId = String(response.id ?? response.Id ?? layout.chartId)
+        const chartType = String(response.chartType ?? response.ChartType ?? 'bar')
+        const configRaw = response.configJson ?? response.ConfigJson ?? response.configuration ?? response.Configuration ?? {}
+        const datasetId = String(response.datasetId ?? response.DatasetId ?? '')
+        const datasetRaw = response.dataset ?? response.Dataset ?? {}
+
+        const resolvedDataset = datasetId
+          ? await resolveDatasetById(datasetId)
+          : await resolveDataset(datasetRaw)
+
+        chartPayload = {
+          id: chartId,
+          type: chartType,
+          config: parseJson(configRaw),
+          dataset: resolvedDataset,
+        }
+      } catch (error) {
+        console.error(`Failed to load chart ${layout.chartId}`, error)
+      }
+
+      return {
+        layoutId: layout.id,
+        chartId: layout.chartId,
+        chartName: layout.chartName,
+        x: layout.positionX,
+        y: layout.positionY,
+        w: layout.width,
+        h: layout.height,
+        chart: chartPayload,
+      }
+    })
+  )
+
+  return resolved
 }
 
-function resizeItem(item: any, dw: number, dh: number) {
-  item.w = Math.max(1, Math.min(12 - item.x, item.w + dw))
-  item.h = Math.max(1, item.h + dh)
+async function loadDashboardDetails(dashboardId: string): Promise<void> {
+  if (!dashboardId) {
+    gridItems.value = []
+    initialSnapshot.value = new Map()
+    return
+  }
+
+  loading.value = true
+  try {
+    const details = await dashboardService.getDashboard(dashboardId)
+    gridItems.value = await hydrateGridItems(details.charts)
+
+    const snapshot = new Map<string, string>()
+    for (const item of gridItems.value) {
+      snapshot.set(item.layoutId, `${item.x}:${item.y}:${item.w}:${item.h}`)
+    }
+    initialSnapshot.value = snapshot
+  } catch (error) {
+    console.error('Failed to load dashboard details', error)
+    gridItems.value = []
+    initialSnapshot.value = new Map()
+    setMessage('Failed to load dashboard layout.')
+  } finally {
+    loading.value = false
+  }
 }
+
+function handleMove(payload: { id: string; x: number; y: number }): void {
+  const target = gridItems.value.find((item) => item.layoutId === payload.id)
+  if (!target) {
+    return
+  }
+
+  target.x = payload.x
+  target.y = payload.y
+}
+
+function handleResize(payload: { id: string; w: number; h: number }): void {
+  const target = gridItems.value.find((item) => item.layoutId === payload.id)
+  if (!target) {
+    return
+  }
+
+  target.w = payload.w
+  target.h = payload.h
+}
+
+function startProjectChartDrag(chartId: string, event: DragEvent): void {
+  if (!selectedDashboardId.value || !chartId || !event.dataTransfer) {
+    return
+  }
+
+  event.dataTransfer.effectAllowed = 'copy'
+  event.dataTransfer.setData('application/x-chart-id', chartId)
+}
+
+async function addChartToDashboard(chartId: string, x?: number, y?: number): Promise<void> {
+  if (saving.value || !selectedDashboardId.value || !chartId) {
+    return
+  }
+
+  if (gridItems.value.some((item) => item.chartId === chartId)) {
+    setMessage('Chart is already in this dashboard.')
+    return
+  }
+
+  const preferredX = typeof x === 'number' ? x : 0
+  const preferredY = typeof y === 'number' ? y : (gridItems.value.length > 0 ? Math.max(...gridItems.value.map((item) => item.y + item.h)) : 0)
+
+  saving.value = true
+  try {
+    await dashboardService.addChartToDashboard({
+      dashboardId: selectedDashboardId.value,
+      chartId,
+      positionX: preferredX,
+      positionY: preferredY,
+      width: 4,
+      height: 3,
+    })
+
+    await loadDashboardDetails(selectedDashboardId.value)
+    setMessage('Chart added to dashboard.')
+  } catch (error: any) {
+    const status = error?.response?.status
+    if (status === 409) {
+      setMessage('Chart is already in this dashboard.')
+      return
+    }
+
+    console.error('Failed to add chart to dashboard', error)
+    setMessage('Failed to add chart to dashboard.')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function saveLayout(): Promise<void> {
+  if (saving.value || !hasPendingLayoutChanges.value) {
+    return
+  }
+
+  saving.value = true
+  try {
+    const changedItems = gridItems.value.filter((item) => {
+      const snapshot = initialSnapshot.value.get(item.layoutId)
+      const current = `${item.x}:${item.y}:${item.w}:${item.h}`
+      return snapshot !== current
+    })
+
+    await Promise.all(
+      changedItems.map((item) =>
+        dashboardService.updateChartLayout({
+          id: item.layoutId,
+          positionX: item.x,
+          positionY: item.y,
+          width: item.w,
+          height: item.h,
+        })
+      )
+    )
+
+    const newSnapshot = new Map(initialSnapshot.value)
+    for (const item of changedItems) {
+      newSnapshot.set(item.layoutId, `${item.x}:${item.y}:${item.w}:${item.h}`)
+    }
+    initialSnapshot.value = newSnapshot
+
+    setMessage('Layout saved.')
+  } catch (error) {
+    console.error('Failed to save dashboard layout', error)
+    setMessage('Failed to save layout changes.')
+  } finally {
+    saving.value = false
+  }
+}
+
+watch(selectedProjectId, async (projectId) => {
+  const selectedProject = projects.value.find((project) => project.id === projectId)
+  if (selectedProject) {
+    projectStore.setCurrentProject({ id: selectedProject.id, name: selectedProject.name })
+  }
+
+  await Promise.all([loadDashboards(projectId), loadCharts(projectId)])
+})
+
+watch(selectedDashboardId, async (dashboardId) => {
+  await loadDashboardDetails(dashboardId)
+})
+
+onMounted(async () => {
+  await loadProjects()
+  if (selectedProjectId.value) {
+    await Promise.all([loadDashboards(selectedProjectId.value), loadCharts(selectedProjectId.value)])
+  }
+  if (selectedDashboardId.value) {
+    await loadDashboardDetails(selectedDashboardId.value)
+  }
+})
 </script>
 
 <template>
-  <div class="dashboard-builder">
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <h3 class="panel__title">Available Charts</h3>
-        <p class="muted" v-if="!projectStore.currentProject">Select a project in Chart Builder first</p>
-      </div>
-      <div class="chart-list">
-        <div v-for="chart in availableCharts" :key="chart.id" class="chart-item" @click="addChartToDashboard(chart)">
-          <div class="chart-name">{{ chart.name }}</div>
-          <div class="chart-type">{{ chart.type }}</div>
-        </div>
-        <p v-if="projectStore.currentProject && availableCharts.length === 0" class="muted">No charts saved in this project yet.</p>
-      </div>
-    </aside>
+  <main class="dashboard-builder-page">
+    <header class="topbar">
+      <DashboardSelectionBar
+        :projects="projects"
+        :dashboards="dashboards"
+        :selected-project-id="selectedProjectId"
+        :selected-dashboard-id="selectedDashboardId"
+        :loading="loading || saving"
+        @update:selected-project-id="selectedProjectId = $event"
+        @update:selected-dashboard-id="selectedDashboardId = $event"
+      />
 
-    <main class="builder-area">
-      <header class="builder-header">
-        <input type="text" v-model="dashboardName" class="dashboard-name-input" placeholder="Dashboard Name" />
-        <div class="builder-actions">
-           <button class="btn btn--primary" @click="handleSaveDashboard">Save Dashboard</button>
-        </div>
-      </header>
+      <button class="save-btn" :disabled="saving || !hasPendingLayoutChanges" @click="saveLayout">
+        {{ saving ? 'Saving...' : 'Save Layout Changes' }}
+      </button>
+    </header>
 
-      <div class="grid-container" @dragover.prevent @drop="onDrop">
-        <div class="grid-background">
-          <div v-for="i in 12" :key="i" class="grid-col"></div>
-        </div>
-        
-        <div 
-          v-for="item in currentDashboard.layout" 
-          :key="item.id"
-          class="layout-item"
-          :style="{
-            gridColumn: `${item.x + 1} / span ${item.w}`,
-            gridRow: `${item.y + 1} / span ${item.h}`
-          }"
+    <p v-if="message" class="message">{{ message }}</p>
+    <p v-if="loading" class="hint">Loading...</p>
+
+    <section class="content-grid" v-if="!loading">
+      <aside class="chart-picker">
+        <h2>Project Charts</h2>
+        <p class="hint">Drag a chart into the dashboard grid, or click to add.</p>
+
+        <button
+          v-for="chart in availableCharts"
+          :key="chart.id"
+          class="chart-item chart-card"
+          :disabled="saving || !selectedDashboardId"
           draggable="true"
-          @dragstart="onDragStart(item, $event)"
+          @dragstart="startProjectChartDrag(chart.id, $event)"
+          @click="addChartToDashboard(chart.id)"
         >
-          <div class="item-controls">
-            <span class="item-title">{{ projectStore.charts.find((c: Chart) => c.id === item.chartId)?.name }}</span>
-            <div class="control-group">
-                <div class="resize-controls">
-                  <button @click.stop="resizeItem(item, -1, 0)" class="control-btn" title="Decrease Width">W-</button>
-                  <button @click.stop="resizeItem(item, 1, 0)" class="control-btn" title="Increase Width">W+</button>
-                  <button @click.stop="resizeItem(item, 0, -1)" class="control-btn" title="Decrease Height">H-</button>
-                  <button @click.stop="resizeItem(item, 0, 1)" class="control-btn" title="Increase Height">H+</button>
-                </div>
-                <button @click.stop="removeItem(item.id)" class="control-btn delete" title="Remove">×</button>
-            </div>
+          <div class="chart-card__head">
+            <span class="chart-card__name">{{ chart.name }}</span>
+            <small>{{ chart.chartType }}</small>
           </div>
-          <div class="item-content">
-            <ChartRenderer v-if="projectStore.charts.find((c: Chart) => c.id === item.chartId)" :chart="projectStore.charts.find((c: Chart) => c.id === item.chartId)!" />
+          <div class="chart-card__thumb">
+            <ChartRenderer v-if="chart.previewChart" :chart="chart.previewChart" />
+            <div v-else class="placeholder">Preview unavailable</div>
           </div>
-        </div>
-      </div>
-    </main>
-  </div>
+        </button>
+
+        <p v-if="availableCharts.length === 0" class="hint">No charts found for this project.</p>
+      </aside>
+
+      <DashboardLayoutGrid
+        :items="gridItems"
+        @move="handleMove"
+        @resize="handleResize"
+        @add-chart="addChartToDashboard($event.chartId, $event.x, $event.y)"
+      />
+    </section>
+  </main>
 </template>
 
 <style scoped>
-.dashboard-builder {
-  display: flex;
+.dashboard-builder-page {
   height: calc(100vh - var(--nav-height));
+  overflow: auto;
+  padding: 16px;
   background: #f8fafc;
 }
 
-.sidebar {
-  width: 300px;
-  background: white;
-  border-right: 1px solid #e2e8f0;
+.topbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.save-btn {
+  height: 38px;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #2563eb;
+  color: white;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.message {
+  color: #0f766e;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.hint {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 14px;
+}
+
+.chart-picker {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
-.sidebar-header {
-  padding: 24px;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.chart-list {
-  padding: 16px;
-  flex: 1;
-  overflow-y: auto;
+.chart-picker h2 {
+  margin: 0;
+  font-size: 16px;
 }
 
 .chart-item {
-  padding: 12px;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #cbd5e1;
   border-radius: 8px;
-  margin-bottom: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.chart-item:hover {
-  background: #e2e8f0;
-  border-color: #cbd5e1;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-}
-
-.chart-name {
-  font-weight: 600;
-  color: #1e293b;
-  font-size: 0.95rem;
-}
-
-.chart-type {
-  font-size: 0.7rem;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.025em;
-  margin-top: 4px;
-}
-
-.builder-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 24px;
-  overflow-y: auto;
-}
-
-.builder-header {
+  background: #fff;
+  text-align: left;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: grab;
 }
 
-.dashboard-name-input {
-  font-size: 1.5rem;
-  font-weight: 700;
-  border: none;
-  background: transparent;
-  color: #1e293b;
-  border-bottom: 2px solid transparent;
-  padding: 4px 0;
-  width: 300px;
-}
-
-.dashboard-name-input:focus {
-  outline: none;
-  border-bottom-color: #2563eb;
-}
-
-.grid-container {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  grid-auto-rows: 100px;
-  gap: 16px;
-  background: white;
-  min-height: 800px;
-  padding: 24px;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  position: relative;
-  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
-}
-
-.grid-background {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 16px;
-  padding: 24px;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.grid-col {
-  border-left: 1px dashed #f1f5f9;
-}
-
-.grid-col:last-child {
-  border-right: 1px dashed #f1f5f9;
-}
-
-.layout-item {
-  background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-  position: relative;
-  z-index: 10;
+.chart-card {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  align-items: stretch;
+  gap: 8px;
 }
 
-.layout-item:hover {
-  border-color: #2563eb;
-  box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.1), 0 4px 6px -2px rgba(37, 99, 235, 0.05);
-}
-
-.item-controls {
-  padding: 8px 12px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
+.chart-card__head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  opacity: 0;
-  transition: opacity 0.2s;
+  gap: 8px;
 }
 
-.layout-item:hover .item-controls {
-  opacity: 1;
-}
-
-.item-title {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #475569;
-  white-space: nowrap;
+.chart-card__name {
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 150px;
+  white-space: nowrap;
 }
 
-.control-group {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-}
-
-.resize-controls {
-  display: flex;
-  gap: 4px;
-}
-
-.control-btn {
-  padding: 2px 6px;
-  border-radius: 4px;
+.chart-card__thumb {
+  height: 120px;
   border: 1px solid #e2e8f0;
-  background: white;
-  cursor: pointer;
-  font-size: 0.7rem;
-  font-weight: 600;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.chart-item:active {
+  cursor: grabbing;
+}
+
+.chart-item:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.chart-item small {
   color: #64748b;
-  transition: all 0.2s;
-}
-
-.control-btn:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #1e293b;
-}
-
-.control-btn.delete {
-  color: #ef4444;
-  border-color: #fee2e2;
-  font-size: 1rem;
-  line-height: 1;
-}
-
-.control-btn.delete:hover {
-  background: #fef2f2;
-  border-color: #fecaca;
-  color: #dc2626;
-}
-
-.item-content {
-  flex: 1;
-  padding: 12px;
-  position: relative;
-  min-height: 0;
-}
-
-.muted {
-  color: #94a3b8;
-  font-size: 0.875rem;
 }
 </style>

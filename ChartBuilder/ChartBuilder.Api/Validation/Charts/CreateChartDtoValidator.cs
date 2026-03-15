@@ -16,10 +16,13 @@ public sealed class CreateChartDtoValidator : AbstractValidator<CreateChartDto>
             .NotEmpty()
             .MaximumLength(80);
 
-        RuleFor(request => request.Configuration)
+        RuleFor(request => request.ConfigJson)
             .NotEmpty();
 
-        RuleFor(request => request.Dataset)
+        RuleFor(request => request.StyleJson)
+            .NotEmpty();
+
+        RuleFor(request => request.DatasetId)
             .NotEmpty();
 
         RuleFor(request => request.ProjectId)

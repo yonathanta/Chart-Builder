@@ -19,17 +19,18 @@
   "dependencies": {
     "canvg": "^4.0.3",
     "d3": "^7.9.0",
-    "pinia": "^3.0.4",
+    "html2canvas": "^1.4.1",
     "jspdf": "^4.0.0",
+    "pinia": "^3.0.4",
     "vue": "beta",
     "vue-router": "^5.0.2",
     "xlsx": "^0.18.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@types/d3": "^7.4.3",
     "@playwright/test": "^1.58.2",
     "@tsconfig/node24": "^24.0.4",
+    "@types/d3": "^7.4.3",
     "@types/jsdom": "^27.0.0",
     "@types/node": "^24.10.13",
     "@vitejs/plugin-vue": "^6.0.4",

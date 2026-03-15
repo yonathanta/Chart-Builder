@@ -5,7 +5,9 @@ namespace ChartBuilder.Domain.Entities;
 public sealed class Project : BaseEntity
 {
     private readonly List<Chart> _charts = [];
+    private readonly List<Dataset> _datasets = [];
     private readonly List<ProjectMember> _projectMembers = [];
+    private readonly List<Dashboard> _dashboards = [];
     private readonly List<Report> _reports = [];
 
     public string Name { get; private set; } = string.Empty;
@@ -16,7 +18,9 @@ public sealed class Project : BaseEntity
 
     public User? User { get; private set; }
     public IReadOnlyCollection<Chart> Charts => _charts;
+    public IReadOnlyCollection<Dataset> Datasets => _datasets;
     public IReadOnlyCollection<ProjectMember> ProjectMembers => _projectMembers;
+    public IReadOnlyCollection<Dashboard> Dashboards => _dashboards;
     public IReadOnlyCollection<Report> Reports => _reports;
 
     private Project()
@@ -45,6 +49,12 @@ public sealed class Project : BaseEntity
         UpdatedAt = DateTime.UtcNow;
     }
 
+    public void AddDataset(Dataset dataset)
+    {
+        _datasets.Add(dataset);
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void AddProjectMember(ProjectMember projectMember)
     {
         _projectMembers.Add(projectMember);
@@ -54,6 +64,12 @@ public sealed class Project : BaseEntity
     public void AddReport(Report report)
     {
         _reports.Add(report);
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void AddDashboard(Dashboard dashboard)
+    {
+        _dashboards.Add(dashboard);
         UpdatedAt = DateTime.UtcNow;
     }
 }

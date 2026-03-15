@@ -7,6 +7,7 @@ import BarBuilderControls from "../components/BarBuilderControls.vue";
 import PieBuilderControls from "../components/PieBuilderControls.vue";
 import MapBuilderControls from "../components/MapBuilderControls.vue";
 import DataBindingPanel from "../components/DataBindingPanel.vue";
+import DatasetUploadPanel from "../components/DatasetUploadPanel.vue";
 import ScatterBuilderControls, { type ScatterBuilderConfig } from "../components/ScatterBuilderControls.vue";
 import BubbleBuilderControls from "../components/BubbleBuilderControls.vue";
 import DotDonutBuilderControls from "../components/DotDonutBuilderControls.vue";
@@ -16,6 +17,8 @@ import PreviewPane from "../components/PreviewPane.vue";
 import { exportService, type ExportFormat } from "../export/exportService";
 import { useProjectStore } from "../stores/projectStore";
 import chartService from "../services/chartService";
+import projectService, { type ProjectRecord } from "../services/projectService";
+import datasetService, { type DatasetRecord } from "../services/datasetService";
 import type { LineChartConfig } from "../charts/line";
 import type { AreaChartConfig } from "../charts/areaV7";
 import type { PieConfig } from "../charts/pie";
@@ -172,15 +175,355 @@ const stackedBarConfig = ref<StackedBarConfig>({
 });
 
 const projectStore = useProjectStore();
+const availableProjects = ref<ProjectRecord[]>([]);
+const availableDatasets = ref<DatasetRecord[]>([]);
+const selectedDatasetId = ref<string>("");
+const isLoadingDatasets = ref(false);
+const selectedDatasetName = ref<string>("");
+const showDatasetUploadPanel = ref(false);
 const newProjectName = ref("");
 const isSavingChart = ref(false);
 const saveSuccessMessage = ref<string | null>(null);
 const saveErrorMessage = ref<string | null>(null);
+const datasetBlobUrl = ref<string | null>(null);
+const currentProjectId = computed(() => projectStore.currentProject?.id ?? "");
+const GLOBAL_SELECTED_DATASET_KEY = "selectedDatasetId";
+const DATASET_SYNC_SIGNAL_KEY = "chartBuilder:lastDatasetUpdate";
 
-function handleCreateProject() {
-  if (!newProjectName.value.trim()) return;
-  projectStore.createProject(newProjectName.value.trim());
-  newProjectName.value = "";
+function getDatasetStorageKey(projectId: string): string {
+  return `chartBuilder:selectedDataset:${projectId}`;
+}
+
+function persistSelectedDataset(projectId: string, datasetId: string): void {
+  if (!projectId || !datasetId) {
+    return;
+  }
+
+  localStorage.setItem(getDatasetStorageKey(projectId), datasetId);
+}
+
+function clearPersistedDataset(projectId: string): void {
+  if (!projectId) {
+    return;
+  }
+
+  localStorage.removeItem(getDatasetStorageKey(projectId));
+}
+
+function getPersistedDataset(projectId: string): string {
+  if (!projectId) {
+    return "";
+  }
+
+  return localStorage.getItem(getDatasetStorageKey(projectId)) ?? "";
+}
+
+function getGlobalSelectedDataset(): string {
+  return localStorage.getItem(GLOBAL_SELECTED_DATASET_KEY) ?? "";
+}
+
+function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error !== "object" || error === null) {
+    return fallback;
+  }
+
+  const maybeAxios = error as {
+    message?: string;
+    response?: {
+      data?: {
+        message?: string;
+        error?: string;
+        title?: string;
+        details?: string[];
+        errors?: Record<string, string[]>;
+      } | string;
+    };
+  };
+
+  const responseData = maybeAxios.response?.data;
+  if (typeof responseData === "string" && responseData.trim().length > 0) {
+    return responseData;
+  }
+
+  if (typeof responseData === "object" && responseData !== null) {
+    if (responseData.errors && typeof responseData.errors === "object") {
+      const firstFieldError = Object.values(responseData.errors)
+        .find((messages) => Array.isArray(messages) && messages.length > 0)
+        ?.[0];
+
+      if (typeof firstFieldError === "string" && firstFieldError.trim().length > 0) {
+        return firstFieldError;
+      }
+    }
+
+    if (Array.isArray(responseData.details) && responseData.details.length > 0) {
+      const firstDetail = responseData.details.find((value) => typeof value === "string" && value.trim().length > 0);
+      if (firstDetail) {
+        return firstDetail;
+      }
+    }
+
+    const apiMessage = responseData.message ?? responseData.error ?? responseData.title;
+    if (typeof apiMessage === "string" && apiMessage.trim().length > 0) {
+      return apiMessage;
+    }
+  }
+
+  if (typeof maybeAxios.message === "string" && maybeAxios.message.trim().length > 0) {
+    return maybeAxios.message;
+  }
+
+  return fallback;
+}
+
+async function loadAvailableProjects(): Promise<void> {
+  const projects = await projectService.getProjects();
+  availableProjects.value = projects;
+
+  const currentId = projectStore.currentProject?.id;
+  const matchedCurrent = currentId
+    ? projects.find((project) => project.id === currentId)
+    : null;
+
+  if (matchedCurrent) {
+    projectStore.setCurrentProject({ id: matchedCurrent.id, name: matchedCurrent.name });
+    return;
+  }
+
+  const first = projects[0];
+  if (first) {
+    projectStore.setCurrentProject({ id: first.id, name: first.name });
+  } else {
+    projectStore.setCurrentProject(null);
+  }
+}
+
+function disposeDatasetBlobUrl(): void {
+  if (datasetBlobUrl.value) {
+    URL.revokeObjectURL(datasetBlobUrl.value);
+    datasetBlobUrl.value = null;
+  }
+}
+
+function toRowArray(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.filter((item) => typeof item === "object" && item !== null) as Record<string, unknown>[];
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const maybeWrappedData = (value as { data?: unknown }).data;
+    if (Array.isArray(maybeWrappedData)) {
+      return maybeWrappedData.filter((item) => typeof item === "object" && item !== null) as Record<string, unknown>[];
+    }
+  }
+
+  return [];
+}
+
+function applyRowsToSpec(rows: Record<string, unknown>[]): void {
+  const blob = new Blob([JSON.stringify(rows)], { type: "application/json" });
+  const nextBlobUrl = URL.createObjectURL(blob);
+  disposeDatasetBlobUrl();
+  datasetBlobUrl.value = nextBlobUrl;
+
+  const keys = Object.keys(rows[0] ?? {});
+  const currentCategory = spec.value.encoding.category.field;
+  const currentValue = spec.value.encoding.value.field;
+  const currentSeries = spec.value.encoding.series?.field;
+
+  const categoryField = keys.includes(currentCategory) ? currentCategory : (keys[0] ?? "category");
+  const valueField = keys.includes(currentValue) ? currentValue : (keys[1] ?? keys[0] ?? "value");
+  const seriesField = currentSeries && keys.includes(currentSeries) ? currentSeries : undefined;
+
+  spec.value = {
+    ...spec.value,
+    data: {
+      ...spec.value.data,
+      provider: "json",
+      kind: "json",
+      query: {
+        ...spec.value.data.query,
+        source: nextBlobUrl,
+      },
+    },
+    encoding: {
+      category: { field: categoryField },
+      value: { field: valueField, aggregate: spec.value.encoding.value.aggregate ?? "sum" },
+      ...(seriesField ? { series: { field: seriesField } } : {}),
+    },
+  };
+
+  refreshPreview();
+}
+
+function getPreviewRows(): Record<string, unknown>[] {
+  const raw = (previewRef.value as any)?.rows;
+  if (Array.isArray(raw)) {
+    return raw as Record<string, unknown>[];
+  }
+
+  if (Array.isArray(raw?.value)) {
+    return raw.value as Record<string, unknown>[];
+  }
+
+  return [];
+}
+
+function getPreviewFilteredRows(): Record<string, unknown>[] {
+  const raw = (previewRef.value as any)?.filteredRows;
+  if (Array.isArray(raw)) {
+    return raw as Record<string, unknown>[];
+  }
+
+  if (Array.isArray(raw?.value)) {
+    return raw.value as Record<string, unknown>[];
+  }
+
+  return [];
+}
+
+async function loadDatasetsForProject(projectId: string): Promise<void> {
+  if (!projectId) {
+    availableDatasets.value = [];
+    selectedDatasetId.value = "";
+    selectedDatasetName.value = "";
+    disposeDatasetBlobUrl();
+    return;
+  }
+
+  isLoadingDatasets.value = true;
+  try {
+    const datasets = await datasetService.getDatasetsByProject(projectId);
+    availableDatasets.value = datasets;
+
+    const stillExists = datasets.some((dataset) => dataset.id === selectedDatasetId.value);
+    if (!stillExists) {
+      selectedDatasetId.value = "";
+      selectedDatasetName.value = "";
+      disposeDatasetBlobUrl();
+    }
+
+    const persistedDatasetId = getPersistedDataset(projectId);
+    if (persistedDatasetId && datasets.some((dataset) => dataset.id === persistedDatasetId)) {
+      await selectDatasetById(persistedDatasetId);
+      return;
+    }
+
+    const globalSelectedDatasetId = getGlobalSelectedDataset();
+    if (globalSelectedDatasetId && datasets.some((dataset) => dataset.id === globalSelectedDatasetId)) {
+      await selectDatasetById(globalSelectedDatasetId);
+      return;
+    }
+
+    if (!selectedDatasetId.value && datasets.length > 0) {
+      selectedDatasetId.value = datasets[0].id;
+      selectedDatasetName.value = datasets[0].name;
+      await selectDatasetById(datasets[0].id);
+    }
+  } catch (error) {
+    availableDatasets.value = [];
+    selectedDatasetId.value = "";
+    selectedDatasetName.value = "";
+    disposeDatasetBlobUrl();
+    saveSuccessMessage.value = null;
+    saveErrorMessage.value = getApiErrorMessage(error, "Failed to load datasets for the selected project.");
+  } finally {
+    isLoadingDatasets.value = false;
+  }
+}
+
+async function selectDatasetById(datasetId: string): Promise<void> {
+  if (!datasetId) {
+    selectedDatasetId.value = "";
+    selectedDatasetName.value = "";
+    disposeDatasetBlobUrl();
+    clearPersistedDataset(currentProjectId.value);
+    return;
+  }
+
+  try {
+    const dataset = await datasetService.getDataset(datasetId);
+    const parsed = JSON.parse(dataset.dataJson) as unknown;
+    const rows = toRowArray(parsed);
+
+    if (rows.length === 0) {
+      throw new Error("Selected dataset contains no tabular rows.");
+    }
+
+    selectedDatasetId.value = dataset.id;
+    selectedDatasetName.value = dataset.name;
+    applyRowsToSpec(rows);
+    persistSelectedDataset(currentProjectId.value, dataset.id);
+    localStorage.setItem(GLOBAL_SELECTED_DATASET_KEY, dataset.id);
+    saveErrorMessage.value = null;
+  } catch (error) {
+    selectedDatasetId.value = "";
+    selectedDatasetName.value = "";
+    disposeDatasetBlobUrl();
+    clearPersistedDataset(currentProjectId.value);
+    saveSuccessMessage.value = null;
+    saveErrorMessage.value = getApiErrorMessage(error, "Failed to load selected dataset.");
+  }
+}
+
+async function handleSelectDataset(event: Event): Promise<void> {
+  const datasetId = (event.target as HTMLSelectElement).value;
+  await selectDatasetById(datasetId);
+}
+
+function handleOpenDatasetUpload(): void {
+  if (!currentProjectId.value) {
+    saveSuccessMessage.value = null;
+    saveErrorMessage.value = "Please select or create a project first.";
+    return;
+  }
+
+  showDatasetUploadPanel.value = true;
+}
+
+function handleCancelDatasetUpload(): void {
+  showDatasetUploadPanel.value = false;
+}
+
+async function handleDatasetUploadSuccess(created: DatasetRecord): Promise<void> {
+  availableDatasets.value = [created, ...availableDatasets.value.filter((dataset) => dataset.id !== created.id)];
+  showDatasetUploadPanel.value = false;
+  await selectDatasetById(created.id);
+  saveErrorMessage.value = null;
+  saveSuccessMessage.value = `Dataset \"${created.name}\" uploaded and selected.`;
+}
+
+function handleDatasetUploadError(message: string): void {
+  saveSuccessMessage.value = null;
+  saveErrorMessage.value = message || "Failed to upload dataset.";
+}
+
+function handleSelectProject(event: Event): void {
+  const selectedId = (event.target as HTMLSelectElement).value;
+  const selected = availableProjects.value.find((project) => project.id === selectedId);
+
+  if (!selected) {
+    projectStore.setCurrentProject(null);
+    return;
+  }
+
+  projectStore.setCurrentProject({ id: selected.id, name: selected.name });
+}
+
+async function handleCreateProject() {
+  const name = newProjectName.value.trim();
+  if (!name) return;
+
+  try {
+    const created = await projectService.createProject({ name });
+    availableProjects.value = [created, ...availableProjects.value];
+    projectStore.setCurrentProject({ id: created.id, name: created.name });
+    newProjectName.value = "";
+    saveErrorMessage.value = null;
+  } catch (error) {
+    saveSuccessMessage.value = null;
+    saveErrorMessage.value = getApiErrorMessage(error, "Failed to create project.");
+  }
 }
 
 async function saveChart() {
@@ -195,6 +538,29 @@ async function saveChart() {
     return;
   }
 
+  let datasetId = selectedDatasetId.value;
+  if (!datasetId && availableDatasets.value.length > 0) {
+    await selectDatasetById(availableDatasets.value[0].id);
+    datasetId = selectedDatasetId.value;
+  }
+
+  if (!datasetId) {
+    const persistedDatasetId = getPersistedDataset(currentProjectId);
+    const globalDatasetId = getGlobalSelectedDataset();
+    const fallbackDatasetId = persistedDatasetId || globalDatasetId;
+
+    if (fallbackDatasetId) {
+      await selectDatasetById(fallbackDatasetId);
+      datasetId = selectedDatasetId.value;
+    }
+  }
+
+  if (!datasetId) {
+    saveSuccessMessage.value = null;
+    saveErrorMessage.value = "Please select a dataset before saving.";
+    return;
+  }
+
   isSavingChart.value = true;
   saveSuccessMessage.value = null;
   saveErrorMessage.value = null;
@@ -202,21 +568,51 @@ async function saveChart() {
   try {
     const chartName = spec.value.title?.trim() || "Untitled Chart";
     const selectedType = spec.value.type;
-    const chartConfig = { ...spec.value };
-    const chartData = { ...spec.value.data };
+    const previewRows = getPreviewRows();
+    const previewFilteredRows = getPreviewFilteredRows();
+    const activeFilters = sidebarActiveFilters.value.map((filter) => ({
+      column: filter.column,
+      values: [...filter.values],
+    }));
+
+    const chartConfig = {
+      ...spec.value,
+      barConfig: barConfig.value,
+      lineConfig: lineConfig.value,
+      areaConfig: areaConfig.value,
+      scatterConfig: scatterConfig.value,
+      pieConfig: pieConfig.value,
+      mapConfig: mapConfig.value,
+      bubbleConfig: bubbleConfig.value,
+      dotDonutConfig: dotDonutConfig.value,
+      orbitDonutConfig: orbitDonutConfig.value,
+      stackedBarConfig: stackedBarConfig.value,
+      stackedAreaConfig: stackedAreaConfig.value,
+      persistedState: {
+        datasetId,
+        datasetName: selectedDatasetName.value,
+        allRows: previewRows,
+        filteredRows: previewFilteredRows,
+        activeFilters,
+        totalRows: previewRows.length,
+        filteredRowCount: previewFilteredRows.length,
+      },
+    };
+    const chartStyle = { ...spec.value.style };
 
     await chartService.createChart({
       name: chartName,
       chartType: selectedType,
-      configuration: JSON.stringify(chartConfig),
-      dataset: JSON.stringify(chartData),
+      configJson: JSON.stringify(chartConfig),
+      styleJson: JSON.stringify(chartStyle),
+      datasetId,
       projectId: currentProjectId,
     });
 
     saveSuccessMessage.value = "Chart saved successfully.";
   } catch (error) {
     console.error("Save chart failed:", error);
-    saveErrorMessage.value = error instanceof Error ? error.message : "Failed to save chart.";
+    saveErrorMessage.value = getApiErrorMessage(error, "Failed to save chart.");
   } finally {
     isSavingChart.value = false;
   }
@@ -267,8 +663,53 @@ function handleDocClick(e: MouseEvent) {
   downloadOpen.value = false;
 }
 
-onMounted(() => document.addEventListener('click', handleDocClick, true));
-onBeforeUnmount(() => document.removeEventListener('click', handleDocClick, true));
+async function handleDatasetStorageSync(event: StorageEvent): Promise<void> {
+  if (!currentProjectId.value) {
+    return;
+  }
+
+  const projectDatasetKey = getDatasetStorageKey(currentProjectId.value);
+  if (event.key !== DATASET_SYNC_SIGNAL_KEY && event.key !== projectDatasetKey && event.key !== GLOBAL_SELECTED_DATASET_KEY) {
+    return;
+  }
+
+  await loadDatasetsForProject(currentProjectId.value);
+}
+
+async function handleWindowFocus(): Promise<void> {
+  if (!currentProjectId.value) {
+    return;
+  }
+
+  await loadDatasetsForProject(currentProjectId.value);
+}
+
+onMounted(async () => {
+  document.addEventListener('click', handleDocClick, true);
+  window.addEventListener('storage', handleDatasetStorageSync);
+  window.addEventListener('focus', handleWindowFocus);
+
+  try {
+    await loadAvailableProjects();
+    await loadDatasetsForProject(currentProjectId.value);
+  } catch {
+    availableProjects.value = [];
+    availableDatasets.value = [];
+  }
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleDocClick, true);
+  window.removeEventListener('storage', handleDatasetStorageSync);
+  window.removeEventListener('focus', handleWindowFocus);
+  disposeDatasetBlobUrl();
+});
+
+watch(
+  () => currentProjectId.value,
+  async (projectId) => {
+    await loadDatasetsForProject(projectId);
+  }
+);
 
 // chevron helper removed
 const selectedYears = ref<string[]>([]);
@@ -521,8 +962,16 @@ async function handleExport(format: ExportFormat) {
       const blob = await exportService.exportSpec(spec.value);
       await downloadBlob(blob, `${baseName}-spec.json`);
     } else if (format === "project-json") {
-      const data = previewRef.value?.rows || [];
-      const blob = await exportService.exportProject(spec.value, data);
+      const data = getPreviewRows();
+      const filteredData = getPreviewFilteredRows();
+      const blob = await exportService.exportProject(spec.value, data, {
+        selectedDatasetId: selectedDatasetId.value,
+        selectedDatasetName: selectedDatasetName.value,
+        activeFilters: sidebarActiveFilters.value,
+        chartType: spec.value.type,
+        style: spec.value.style,
+        filteredData,
+      });
       await downloadBlob(blob, `${baseName}-project.json`);
     }
   } catch (err) {
@@ -547,11 +996,27 @@ async function handleLoadProject(event: Event) {
     // Restore spec
     spec.value = project.spec;
 
+    const embeddedData = Array.isArray(project.filteredData)
+      ? project.filteredData
+      : Array.isArray(project.data)
+        ? project.data
+        : [];
+
     // If data is embedded, create a new blob URL and update the source
-    if (project.data && project.data.length > 0) {
-      const textJson = JSON.stringify(project.data);
+    if (embeddedData.length > 0) {
+      const textJson = JSON.stringify(embeddedData);
       const blobUrl = URL.createObjectURL(new Blob([textJson], { type: "application/json" }));
       spec.value.data.query.source = blobUrl;
+    }
+
+    if (typeof project.selectedDatasetId === "string" && project.selectedDatasetId.length > 0) {
+      selectedDatasetId.value = project.selectedDatasetId;
+      localStorage.setItem(GLOBAL_SELECTED_DATASET_KEY, project.selectedDatasetId);
+      persistSelectedDataset(currentProjectId.value, project.selectedDatasetId);
+    }
+
+    if (typeof project.selectedDatasetName === "string") {
+      selectedDatasetName.value = project.selectedDatasetName;
     }
 
     refreshPreview();
@@ -669,9 +1134,9 @@ function triggerLoadProject() {
               <h3 class="panel__title">Project</h3>
               <div class="form-field">
                 <span>Selected Project</span>
-                <select :value="projectStore.currentProject?.id" @change="projectStore.selectProject(($event.target as HTMLSelectElement).value)">
-                  <option :value="undefined" disabled>Select a project</option>
-                  <option v-for="p in projectStore.projects" :key="p.id" :value="p.id">{{ p.name }}</option>
+                <select :value="projectStore.currentProject?.id ?? ''" @change="handleSelectProject">
+                  <option value="" disabled>Select a project</option>
+                  <option v-for="p in availableProjects" :key="p.id" :value="p.id">{{ p.name }}</option>
                 </select>
               </div>
               <div class="form-field" style="margin-top: 8px;">
@@ -681,6 +1146,28 @@ function triggerLoadProject() {
                   <button class="pill" @click="handleCreateProject">Add</button>
                 </div>
               </div>
+
+              <h3 class="panel__title" style="margin-top: 20px;">Dataset</h3>
+              <div class="form-field">
+                <span>Selected Dataset</span>
+                <select :value="selectedDatasetId" @change="handleSelectDataset" :disabled="!currentProjectId || isLoadingDatasets">
+                  <option value="" disabled>{{ isLoadingDatasets ? 'Loading datasets...' : 'Select a dataset' }}</option>
+                  <option v-for="d in availableDatasets" :key="d.id" :value="d.id">{{ d.name }}</option>
+                </select>
+              </div>
+              <div class="form-field" style="margin-top: 8px;">
+                <button class="pill" :disabled="!currentProjectId" @click="handleOpenDatasetUpload">Upload Dataset</button>
+              </div>
+              <DatasetUploadPanel
+                v-if="showDatasetUploadPanel && currentProjectId"
+                :project-id="currentProjectId"
+                @uploaded="handleDatasetUploadSuccess"
+                @cancel="handleCancelDatasetUpload"
+                @error="handleDatasetUploadError"
+              />
+              <p class="muted" style="margin-top:6px;">
+                {{ selectedDatasetName ? `Using dataset: ${selectedDatasetName}` : 'Dataset selection feeds DataJson into the chart preview.' }}
+              </p>
 
               <h3 class="panel__title" style="margin-top: 24px;">Bind data source</h3>
               <DataBindingPanel

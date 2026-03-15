@@ -6,7 +6,24 @@ const api = axios.create({
   baseURL: apiBaseUrl,
 });
 
+function isAuthPublicEndpoint(url?: string): boolean {
+  if (!url) {
+    return false;
+  }
+
+  const normalizedUrl = url.toLowerCase();
+  return (
+    normalizedUrl.includes('/auth/login') ||
+    normalizedUrl.includes('/auth/register') ||
+    normalizedUrl.includes('/account/register')
+  );
+}
+
 api.interceptors.request.use((config) => {
+  if (isAuthPublicEndpoint(config.url)) {
+    return config;
+  }
+
   const token = localStorage.getItem("token");
 
   if (token) {
@@ -20,7 +37,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error?.response?.status === 401) {
+    const requestUrl = error?.config?.url as string | undefined;
+    if (error?.response?.status === 401 && !isAuthPublicEndpoint(requestUrl)) {
       window.location.href = "/login";
     }
 

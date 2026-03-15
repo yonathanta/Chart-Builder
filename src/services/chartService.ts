@@ -9,20 +9,17 @@ type ChartLike = {
 export type CreateChartData = {
   name: string;
   chartType: string;
-  configuration: string;
-  dataset: string;
+  configJson: string;
+  styleJson: string;
+  datasetId: string;
   projectId: string;
 };
 
 export type UpdateChartData = Omit<CreateChartData, "projectId">;
 
-function matchesProjectId(chart: ChartLike, projectId: string): boolean {
-  return chart.projectId === projectId || chart.ProjectId === projectId;
-}
-
 export async function getCharts(projectId: string): Promise<unknown> {
-  const response = await api.get<ChartLike[]>("/charts");
-  return response.data.filter((chart) => matchesProjectId(chart, projectId));
+  const response = await api.get<ChartLike[]>(`/charts/project/${projectId}`);
+  return response.data;
 }
 
 export async function getChart(id: string): Promise<unknown> {

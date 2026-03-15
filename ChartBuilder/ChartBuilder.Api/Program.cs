@@ -8,6 +8,7 @@ using ChartBuilder.Domain.Entities;
 using ChartBuilder.Infrastructure;
 using ChartBuilder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
@@ -99,10 +100,12 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 });
-builder.Services.AddAuthentication();
-builder.Services.AddAuthorization();
 builder.Services.AddAuthorization(options =>
 {
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+
     options.AddPolicy("AdminOnly", policy =>
         policy.RequireRole(UserRole.Admin.ToString(), UserRole.SuperAdmin.ToString()));
 });
@@ -200,12 +203,13 @@ using (var scope = app.Services.CreateScope())
             }
         }
 
-        var adminExists = await dbContext.Users.AnyAsync(user => user.Role == UserRole.Admin);
+        var adminEmail = builder.Configuration["SeedAdmin:Email"] ?? "admin@chartbuilder.local";
+        var adminPassword = builder.Configuration["SeedAdmin:Password"] ?? "Admin@123";
+        var adminFullName = builder.Configuration["SeedAdmin:FullName"] ?? "System Administrator";
+
+        var adminExists = await dbContext.Users.AnyAsync(user => user.Email == adminEmail);
         if (!adminExists)
         {
-            var adminEmail = builder.Configuration["SeedAdmin:Email"] ?? "admin@chartbuilder.local";
-            var adminPassword = builder.Configuration["SeedAdmin:Password"] ?? "Admin@123";
-            var adminFullName = builder.Configuration["SeedAdmin:FullName"] ?? "System Administrator";
 
             var adminUser = new User(
                 email: adminEmail,
@@ -218,6 +222,27 @@ using (var scope = app.Services.CreateScope())
             adminUser.SetPasswordHash(passwordHasher.HashPassword(adminUser, adminPassword));
 
             await dbContext.Users.AddAsync(adminUser);
+            await dbContext.SaveChangesAsync();
+        }
+
+        var testUserName = builder.Configuration["SeedTestUser:UserName"] ?? "Admin";
+        var testUserPassword = builder.Configuration["SeedTestUser:Password"] ?? "Password@1";
+        var testUserFullName = builder.Configuration["SeedTestUser:FullName"] ?? "Admin Test User";
+
+        var testUserExists = await dbContext.Users.AnyAsync(user => user.Email == testUserName);
+        if (!testUserExists)
+        {
+            var testUser = new User(
+                email: testUserName,
+                passwordHash: string.Empty,
+                fullName: testUserFullName,
+                role: UserRole.Admin,
+                isActive: true);
+
+            var passwordHasher = new PasswordHasher<User>();
+            testUser.SetPasswordHash(passwordHasher.HashPassword(testUser, testUserPassword));
+
+            await dbContext.Users.AddAsync(testUser);
             await dbContext.SaveChangesAsync();
         }
     }

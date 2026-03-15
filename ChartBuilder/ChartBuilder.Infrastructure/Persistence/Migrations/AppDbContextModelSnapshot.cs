@@ -17,7 +17,7 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.12")
+                .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -72,22 +72,23 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("ChartType")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
 
-                    b.Property<string>("Configuration")
+                    b.Property<string>("ConfigJson")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("Dataset")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                    b.Property<Guid>("DatasetId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uniqueidentifier");
@@ -95,14 +96,134 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<string>("StyleJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DatasetId");
+
                     b.HasIndex("ProjectId");
 
                     b.ToTable("Charts");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.Dashboard", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("UpdatedAt");
+
+                    b.ToTable("Dashboards");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.DashboardChart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ChartId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DashboardId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PositionX")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PositionY")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChartId");
+
+                    b.HasIndex("DashboardId");
+
+                    b.HasIndex("DashboardId", "ChartId")
+                        .IsUnique();
+
+                    b.ToTable("DashboardCharts");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.Dataset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DataJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Datasets");
                 });
 
             modelBuilder.Entity("ChartBuilder.Domain.Entities.Project", b =>
@@ -180,6 +301,11 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uniqueidentifier");
 
@@ -191,6 +317,10 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("UserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ProjectId");
@@ -198,6 +328,48 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
                     b.HasIndex("UpdatedAt");
 
                     b.ToTable("Reports");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.ReportChart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ChartId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("int");
+
+                    b.Property<int>("OrderIndex")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PositionX")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PositionY")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("ReportId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChartId");
+
+                    b.HasIndex("ReportId");
+
+                    b.HasIndex("ReportId", "ChartId")
+                        .IsUnique();
+
+                    b.HasIndex("ReportId", "OrderIndex")
+                        .IsUnique();
+
+                    b.ToTable("ReportCharts");
                 });
 
             modelBuilder.Entity("ChartBuilder.Domain.Entities.User", b =>
@@ -235,6 +407,83 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("ChartBuilder.Infrastructure.Persistence.ApplicationUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Department")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsApproved")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("JobTitle")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("UserName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AspNetUsers", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+                        });
+                });
+
             modelBuilder.Entity("ChartBuilder.Domain.Entities.AuditLog", b =>
                 {
                     b.HasOne("ChartBuilder.Domain.Entities.User", "User")
@@ -248,8 +497,57 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("ChartBuilder.Domain.Entities.Chart", b =>
                 {
+                    b.HasOne("ChartBuilder.Domain.Entities.Dataset", "Dataset")
+                        .WithMany("Charts")
+                        .HasForeignKey("DatasetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("ChartBuilder.Domain.Entities.Project", "Project")
                         .WithMany("Charts")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Dataset");
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.Dashboard", b =>
+                {
+                    b.HasOne("ChartBuilder.Domain.Entities.Project", "Project")
+                        .WithMany("Dashboards")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.DashboardChart", b =>
+                {
+                    b.HasOne("ChartBuilder.Domain.Entities.Chart", "Chart")
+                        .WithMany("DashboardCharts")
+                        .HasForeignKey("ChartId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("ChartBuilder.Domain.Entities.Dashboard", "Dashboard")
+                        .WithMany("DashboardCharts")
+                        .HasForeignKey("DashboardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Chart");
+
+                    b.Navigation("Dashboard");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.Dataset", b =>
+                {
+                    b.HasOne("ChartBuilder.Domain.Entities.Project", "Project")
+                        .WithMany("Datasets")
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -298,13 +596,58 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
                     b.Navigation("Project");
                 });
 
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.ReportChart", b =>
+                {
+                    b.HasOne("ChartBuilder.Domain.Entities.Chart", "Chart")
+                        .WithMany("ReportCharts")
+                        .HasForeignKey("ChartId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("ChartBuilder.Domain.Entities.Report", "Report")
+                        .WithMany("ReportCharts")
+                        .HasForeignKey("ReportId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Chart");
+
+                    b.Navigation("Report");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.Chart", b =>
+                {
+                    b.Navigation("DashboardCharts");
+
+                    b.Navigation("ReportCharts");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.Dashboard", b =>
+                {
+                    b.Navigation("DashboardCharts");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.Dataset", b =>
+                {
+                    b.Navigation("Charts");
+                });
+
             modelBuilder.Entity("ChartBuilder.Domain.Entities.Project", b =>
                 {
                     b.Navigation("Charts");
 
+                    b.Navigation("Dashboards");
+
+                    b.Navigation("Datasets");
+
                     b.Navigation("ProjectMembers");
 
                     b.Navigation("Reports");
+                });
+
+            modelBuilder.Entity("ChartBuilder.Domain.Entities.Report", b =>
+                {
+                    b.Navigation("ReportCharts");
                 });
 
             modelBuilder.Entity("ChartBuilder.Domain.Entities.User", b =>

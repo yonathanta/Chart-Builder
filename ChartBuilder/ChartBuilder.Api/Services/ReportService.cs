@@ -27,16 +27,9 @@ public sealed class ReportService : IReportService
 
     public async Task<Report?> GetByIdAsync(Guid userId, Guid reportId, CancellationToken cancellationToken)
     {
-        var report = await _dbContext.Reports
-            .FirstOrDefaultAsync(candidate => candidate.Id == reportId, cancellationToken);
-
-        if (report is null)
-        {
-            return null;
-        }
-
-        await EnsureOwnsProjectAsync(userId, report.ProjectId, cancellationToken);
-        return report;
+        return await _dbContext.Reports
+            .Where(candidate => candidate.Id == reportId && candidate.Project != null && candidate.Project.UserId == userId)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<Report> CreateAsync(Guid userId, SaveReportDto request, CancellationToken cancellationToken)
@@ -58,14 +51,14 @@ public sealed class ReportService : IReportService
     public async Task<Report?> UpdateAsync(Guid userId, Guid reportId, SaveReportDto request, CancellationToken cancellationToken)
     {
         var report = await _dbContext.Reports
-            .FirstOrDefaultAsync(candidate => candidate.Id == reportId, cancellationToken);
+            .Where(candidate => candidate.Id == reportId && candidate.Project != null && candidate.Project.UserId == userId)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (report is null)
         {
             return null;
         }
 
-        await EnsureOwnsProjectAsync(userId, report.ProjectId, cancellationToken);
         await EnsureSelectableChartsAreApprovedAsync(report.ProjectId, request.LayoutJson, cancellationToken);
 
         report.UpdateDetails(

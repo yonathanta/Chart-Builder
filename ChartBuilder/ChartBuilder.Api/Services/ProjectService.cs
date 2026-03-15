@@ -20,14 +20,12 @@ public sealed class ProjectService : IProjectService
     {
         var project = await _dbContext.Projects
             .Include(candidate => candidate.ProjectMembers)
-            .FirstOrDefaultAsync(candidate => candidate.Id == projectId, cancellationToken);
+            .FirstOrDefaultAsync(candidate => candidate.Id == projectId && candidate.UserId == userId, cancellationToken);
 
         if (project is null)
         {
             return null;
         }
-
-        EnsureCanModifyProject(project, userId);
 
         project.UpdateDetails(request.Name.Trim(), request.Description?.Trim() ?? string.Empty);
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -38,14 +36,12 @@ public sealed class ProjectService : IProjectService
     {
         var project = await _dbContext.Projects
             .Include(candidate => candidate.ProjectMembers)
-            .FirstOrDefaultAsync(candidate => candidate.Id == projectId, cancellationToken);
+            .FirstOrDefaultAsync(candidate => candidate.Id == projectId && candidate.UserId == userId, cancellationToken);
 
         if (project is null)
         {
             return false;
         }
-
-        EnsureCanModifyProject(project, userId);
 
         _dbContext.Projects.Remove(project);
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -61,14 +57,12 @@ public sealed class ProjectService : IProjectService
     {
         var project = await _dbContext.Projects
             .Include(candidate => candidate.ProjectMembers)
-            .FirstOrDefaultAsync(candidate => candidate.Id == projectId, cancellationToken);
+            .FirstOrDefaultAsync(candidate => candidate.Id == projectId && candidate.UserId == actorUserId, cancellationToken);
 
         if (project is null)
         {
             return null;
         }
-
-        EnsureCanModifyProject(project, actorUserId);
 
         var userExists = await _dbContext.Users
             .AnyAsync(user => user.Id == memberUserId, cancellationToken);

@@ -1,4 +1,5 @@
 using ChartBuilder.Application.Auth.Dtos;
+using ChartBuilder.Domain.Entities;
 using ChartBuilder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -12,13 +13,16 @@ public sealed class AccountController : ControllerBase
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly RoleManager<IdentityRole> _roleManager;
+    private readonly AppDbContext _dbContext;
 
     public AccountController(
         UserManager<ApplicationUser> userManager,
-        RoleManager<IdentityRole> roleManager)
+        RoleManager<IdentityRole> roleManager,
+        AppDbContext dbContext)
     {
         _userManager = userManager;
         _roleManager = roleManager;
+        _dbContext = dbContext;
     }
 
     [AllowAnonymous]
@@ -46,7 +50,7 @@ public sealed class AccountController : ControllerBase
             LastName = request.LastName.Trim(),
             Department = request.Department.Trim(),
             JobTitle = request.JobTitle.Trim(),
-            IsApproved = false,
+            IsApproved = true,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -60,30 +64,50 @@ public sealed class AccountController : ControllerBase
             });
         }
 
-        const string pendingRole = "Pending";
-        if (!await _roleManager.RoleExistsAsync(pendingRole))
+        if (!await _roleManager.RoleExistsAsync("User"))
         {
-            var roleResult = await _roleManager.CreateAsync(new IdentityRole(pendingRole));
+            var roleResult = await _roleManager.CreateAsync(new IdentityRole("User"));
             if (!roleResult.Succeeded)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, new
                 {
-                    error = "Failed to create pending role.",
+                    error = "Failed to create default role.",
                     details = roleResult.Errors.Select(identityError => identityError.Description)
                 });
             }
         }
 
-        var addToRoleResult = await _userManager.AddToRoleAsync(user, pendingRole);
+        var addToRoleResult = await _userManager.AddToRoleAsync(user, "User");
         if (!addToRoleResult.Succeeded)
         {
             return StatusCode(StatusCodes.Status500InternalServerError, new
             {
-                error = "Failed to assign pending role.",
+                error = "Failed to assign default role.",
                 details = addToRoleResult.Errors.Select(identityError => identityError.Description)
             });
         }
 
-        return Ok(new { message = "Registration submitted. Awaiting admin approval." });
+        if (Guid.TryParse(user.Id, out var domainUserId))
+        {
+            var domainUserExists = await _dbContext.Users.FindAsync(domainUserId);
+            if (domainUserExists is null)
+            {
+                var domainUser = new User(
+                    id: domainUserId,
+                    email: normalizedEmail,
+                    passwordHash: string.Empty,
+                    fullName: $"{request.FirstName.Trim()} {request.LastName.Trim()}".Trim(),
+                    role: UserRole.Viewer,
+                    isActive: true);
+
+                await _dbContext.Users.AddAsync(domainUser);
+                await _dbContext.SaveChangesAsync();
+            }
+        }
+
+        return Ok(new
+        {
+            message = "Registration successful. You can now login."
+        });
     }
 }

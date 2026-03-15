@@ -234,3 +234,14 @@ D:\Chart-Builder\Chart-Builder-1\chartbuilder\ChartBuilder.Api\obj\Debug\net10.0
 D:\Chart-Builder\Chart-Builder-1\chartbuilder\ChartBuilder.Api\obj\Debug\net10.0\ChartBuilder.Api.genruntimeconfig.cache
 D:\Chart-Builder\Chart-Builder-1\chartbuilder\ChartBuilder.Api\obj\Debug\net10.0\ref\ChartBuilder.Api.dll
 D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\Microsoft.AspNetCore.Identity.EntityFrameworkCore.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\CsvHelper.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\EPPlus.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\EPPlus.Interfaces.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\EPPlus.System.Drawing.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\Microsoft.IO.RecyclableMemoryStream.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\Microsoft.Win32.SystemEvents.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\System.Drawing.Common.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\runtimes\win\lib\net7.0\Microsoft.Win32.SystemEvents.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\runtimes\win\lib\net7.0\System.Drawing.Common.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\PuppeteerSharp.dll
+D:\Chart-Builder\Chart-Builder-1\ChartBuilder\ChartBuilder.Api\bin\Debug\net10.0\WebDriverBiDi.dll

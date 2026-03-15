@@ -8,9 +8,7 @@ public static class RoleSeeder
     [
         "Admin",
         "Manager",
-        "Editor",
-        "Viewer",
-        "Pending"
+        "User"
     ];
 
     public static async Task SeedAsync(RoleManager<IdentityRole> roleManager)

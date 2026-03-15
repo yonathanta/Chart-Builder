@@ -29,11 +29,59 @@ function getErrorMessage(error: unknown): string {
   const fallbackMessage = 'Unable to sign in right now. Please try again.'
 
   if (typeof error === 'object' && error !== null) {
-    const maybeResponse = (error as { response?: { data?: { error?: string; message?: string } } }).response
-    const apiMessage = maybeResponse?.data?.error ?? maybeResponse?.data?.message
+    const maybeAxios = error as {
+      message?: string
+      response?: {
+        status?: number
+        data?: {
+          error?: string
+          message?: string
+          title?: string
+          details?: string[]
+          errors?: Record<string, string[]>
+        } | string
+      }
+    }
 
-    if (typeof apiMessage === 'string' && apiMessage.trim().length > 0) {
-      return apiMessage
+    const responseData = maybeAxios.response?.data
+    if (typeof responseData === 'string' && responseData.trim().length > 0) {
+      return responseData
+    }
+
+    if (typeof responseData === 'object' && responseData !== null) {
+      const typed = responseData as {
+        error?: string
+        message?: string
+        title?: string
+        details?: string[]
+        errors?: Record<string, string[]>
+      }
+
+      if (typed.errors && typeof typed.errors === 'object') {
+        const firstFieldError = Object.values(typed.errors)
+          .find((messages) => Array.isArray(messages) && messages.length > 0)
+          ?.[0]
+
+        if (typeof firstFieldError === 'string' && firstFieldError.trim().length > 0) {
+          return firstFieldError
+        }
+      }
+
+      if (Array.isArray(typed.details) && typed.details.length > 0) {
+        const detail = typed.details.find((value) => typeof value === 'string' && value.trim().length > 0)
+        if (detail) {
+          return detail
+        }
+      }
+
+      const apiMessage = typed.error ?? typed.message ?? typed.title
+      if (typeof apiMessage === 'string' && apiMessage.trim().length > 0) {
+        return apiMessage
+      }
+    }
+
+    if (typeof maybeAxios.message === 'string' && maybeAxios.message.trim().length > 0) {
+      return maybeAxios.message
     }
   }
 
@@ -41,56 +89,42 @@ function getErrorMessage(error: unknown): string {
 }
 
 async function handleLogin(): Promise<void> {
-  console.log('[LoginPage] handleLogin triggered', { email: form.email })
-
   if (!validateFields()) {
-    console.log('[LoginPage] validation failed')
     return
   }
 
   isLoading.value = true
   formError.value = ''
-  console.log('[LoginPage] validation passed, calling authService.login')
 
   try {
     const response = await authService.login(form.email.trim(), form.password)
     const token = typeof response.token === 'string' ? response.token : ''
+    localStorage.setItem('token', token)
     const fallbackEmail = form.email.trim()
-    const responseUser = response.user as { email?: string; role?: string } | undefined
+    const responseUser = response.user as { id?: string; email?: string; role?: string } | undefined
     const responseEmail =
       typeof responseUser?.email === 'string'
         ? responseUser.email
-        : typeof response.email === 'string'
-          ? response.email
-        : typeof response.Email === 'string'
-          ? response.Email
-          : fallbackEmail
+        : fallbackEmail
     const responseRole =
       typeof responseUser?.role === 'string'
         ? responseUser.role
-        : typeof response.role === 'string'
-          ? response.role
-        : typeof response.Role === 'string'
-          ? response.Role
-          : ''
+        : ''
 
     authStore.login({
       token,
       user: {
+        id: typeof responseUser?.id === 'string' ? responseUser.id : '',
         email: responseEmail,
         role: responseRole,
       },
     })
-    console.log('[LoginPage] login success, navigating to /')
 
-    await router.push('/')
-    console.log('[LoginPage] navigation complete')
+    await router.push('/projects')
   } catch (error) {
-    console.error('[LoginPage] login failed', error)
     formError.value = getErrorMessage(error)
   } finally {
     isLoading.value = false
-    console.log('[LoginPage] handleLogin finished')
   }
 }
 
@@ -167,7 +201,6 @@ function goToRegister(): void {
               type="submit"
               class="login-button"
               :disabled="isLoading"
-              @click="console.log('[LoginPage] Sign In button clicked')"
             >
               {{ isLoading ? 'Signing In...' : 'Sign In' }}
             </button>

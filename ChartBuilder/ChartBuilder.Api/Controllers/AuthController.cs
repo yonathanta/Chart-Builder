@@ -20,20 +20,23 @@ public sealed class AuthController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IConfiguration _configuration;
     private readonly PasswordHasher<User> _passwordHasher;
+    private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         AppDbContext dbContext,
         UserManager<ApplicationUser> userManager,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        ILogger<AuthController> logger)
     {
         _dbContext = dbContext;
         _userManager = userManager;
         _configuration = configuration;
         _passwordHasher = new PasswordHasher<User>();
+        _logger = logger;
     }
 
     [HttpPost("register")]
-    [Authorize(Roles = "SuperAdmin,Admin")]
+    [AllowAnonymous]
     public async Task<ActionResult<AuthResponseDto>> Register(RegisterDto request, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Email) ||
@@ -78,7 +81,7 @@ public sealed class AuthController : ControllerBase
 
     [AllowAnonymous]
     [HttpPost("login")]
-    public async Task<ActionResult<AuthResponseDto>> Login(LoginDto request, CancellationToken cancellationToken)
+    public async Task<IActionResult> Login(LoginDto request, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
         {
@@ -89,27 +92,34 @@ public sealed class AuthController : ControllerBase
         {
             var normalizedEmail = request.Email.Trim().ToLowerInvariant();
 
-            var identityUser = await _userManager.FindByEmailAsync(normalizedEmail);
-            if (identityUser is not null)
+            try
             {
-                var passwordValid = await _userManager.CheckPasswordAsync(identityUser, request.Password);
-                if (!passwordValid)
+                var identityUser = await _userManager.FindByEmailAsync(normalizedEmail);
+                if (identityUser is not null)
                 {
-                    return Unauthorized(new { error = "Invalid credentials." });
+                    var passwordValid = await _userManager.CheckPasswordAsync(identityUser, request.Password);
+                    if (!passwordValid)
+                    {
+                        return Unauthorized(new { error = "Invalid credentials." });
+                    }
+
+                    if (!identityUser.IsApproved)
+                    {
+                        return Unauthorized(new { error = "Your account is pending admin approval." });
+                    }
+
+                    var userRoles = await _userManager.GetRolesAsync(identityUser);
+                    var role = userRoles.FirstOrDefault(roleName => !string.Equals(roleName, "Pending", StringComparison.OrdinalIgnoreCase))
+                        ?? userRoles.FirstOrDefault()
+                        ?? UserRole.Viewer.ToString();
+
+                    var identityResponse = BuildAuthResponse(identityUser, role);
+                    return Ok(BuildLoginResponse(identityResponse));
                 }
-
-                if (!identityUser.IsApproved)
-                {
-                    return Unauthorized(new { error = "Your account is pending admin approval." });
-                }
-
-                var userRoles = await _userManager.GetRolesAsync(identityUser);
-                var role = userRoles.FirstOrDefault(roleName => !string.Equals(roleName, "Pending", StringComparison.OrdinalIgnoreCase))
-                    ?? userRoles.FirstOrDefault()
-                    ?? UserRole.Viewer.ToString();
-
-                var identityResponse = BuildAuthResponse(identityUser, role);
-                return Ok(identityResponse);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Identity login lookup failed for {Email}. Falling back to domain user auth.", normalizedEmail);
             }
 
             var user = await _dbContext.Users
@@ -127,7 +137,7 @@ public sealed class AuthController : ControllerBase
             }
 
             var response = BuildAuthResponse(user);
-            return Ok(response);
+            return Ok(BuildLoginResponse(response));
         }
         catch (InvalidOperationException exception)
         {
@@ -137,6 +147,20 @@ public sealed class AuthController : ControllerBase
         {
             return Unauthorized(new { error = "Invalid credentials." });
         }
+    }
+
+    private static object BuildLoginResponse(AuthResponseDto response)
+    {
+        return new
+        {
+            token = response.Token,
+            user = new
+            {
+                id = response.UserId,
+                email = response.Email,
+                role = response.Role
+            }
+        };
     }
 
     private AuthResponseDto BuildAuthResponse(User user)
@@ -174,7 +198,6 @@ public sealed class AuthController : ControllerBase
         return new AuthResponseDto
         {
             Token = new JwtSecurityTokenHandler().WriteToken(token),
-            ExpiresAtUtc = expiresAt,
             UserId = user.Id,
             Email = user.Email,
             Role = user.Role.ToString()
@@ -221,7 +244,6 @@ public sealed class AuthController : ControllerBase
         return new AuthResponseDto
         {
             Token = new JwtSecurityTokenHandler().WriteToken(token),
-            ExpiresAtUtc = expiresAt,
             UserId = userId,
             Email = user.Email ?? string.Empty,
             Role = role

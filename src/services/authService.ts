@@ -1,9 +1,14 @@
 import api from "./api";
 
+type AuthUser = {
+  id?: string;
+  email?: string;
+  role?: string;
+};
+
 type AuthResponse = {
   token?: string;
-  user?: unknown;
-  [key: string]: unknown;
+  user?: AuthUser;
 };
 
 const TOKEN_KEY = "token";
@@ -16,26 +21,6 @@ function persistAuthData(data: AuthResponse): void {
 
   if (data.user !== undefined) {
     localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    return;
-  }
-
-  const hasFlatUserData =
-    data.userId !== undefined ||
-    data.email !== undefined ||
-    data.role !== undefined ||
-    data.UserId !== undefined ||
-    data.Email !== undefined ||
-    data.Role !== undefined;
-  if (hasFlatUserData) {
-    localStorage.setItem(
-      USER_KEY,
-      JSON.stringify({
-        userId: data.userId ?? data.UserId,
-        email: data.email ?? data.Email,
-        role: data.role ?? data.Role,
-        expiresAtUtc: data.expiresAtUtc ?? data.ExpiresAtUtc,
-      })
-    );
   }
 }
 

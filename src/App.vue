@@ -1,24 +1,106 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterView, RouterLink } from 'vue-router'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import projectService, { type ProjectRecord } from './services/projectService'
+import { useProjectStore } from './stores/projectStore'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const projectStore = useProjectStore()
+
+const projects = ref<ProjectRecord[]>([])
+const selectedProjectId = ref('')
+const isLoadingProjects = ref(false)
+
 const showNav = computed(() => !route.meta.hideNav)
 const userEmail = computed(() => authStore.userEmail)
+const hasSelectedProject = computed(() => selectedProjectId.value.length > 0)
 const canAccessAdmin = computed(() => {
   const role = authStore.userRole.toLowerCase()
   return role === 'admin' || role === 'superadmin'
 })
 
+async function loadProjects(): Promise<void> {
+  if (isLoadingProjects.value) {
+    return
+  }
+
+  if (!authStore.isAuthenticated) {
+    projects.value = []
+    selectedProjectId.value = ''
+    projectStore.setCurrentProject(null)
+    return
+  }
+
+  isLoadingProjects.value = true
+  try {
+    projects.value = await projectService.getProjects()
+
+    const currentId = projectStore.currentProject?.id
+    const matchedCurrent = currentId
+      ? projects.value.find((project) => project.id === currentId)
+      : null
+
+    if (matchedCurrent) {
+      selectedProjectId.value = matchedCurrent.id
+      projectStore.setCurrentProject({ id: matchedCurrent.id, name: matchedCurrent.name })
+      return
+    }
+
+    const first = projects.value[0]
+    if (first) {
+      selectedProjectId.value = first.id
+      projectStore.setCurrentProject({ id: first.id, name: first.name })
+    } else {
+      selectedProjectId.value = ''
+      projectStore.setCurrentProject(null)
+    }
+  } catch {
+    projects.value = []
+    selectedProjectId.value = ''
+    projectStore.setCurrentProject(null)
+  } finally {
+    isLoadingProjects.value = false
+  }
+}
+
+watch(selectedProjectId, (projectId) => {
+  if (!projectId) {
+    projectStore.setCurrentProject(null)
+    return
+  }
+
+  const project = projects.value.find((item) => item.id === projectId)
+  if (project) {
+    projectStore.setCurrentProject({ id: project.id, name: project.name })
+  }
+})
+
+watch(
+  () => authStore.isAuthenticated,
+  async (isAuthenticated, wasAuthenticated) => {
+    if (isAuthenticated && !wasAuthenticated) {
+      await loadProjects()
+    } else {
+      projects.value = []
+      selectedProjectId.value = ''
+      projectStore.setCurrentProject(null)
+    }
+  }
+)
+
 function handleLogout(): void {
   authStore.logout()
+  projectStore.setCurrentProject(null)
+  projects.value = []
+  selectedProjectId.value = ''
   router.push('/login')
 }
+
 </script>
 
 <template>
@@ -28,10 +110,25 @@ function handleLogout(): void {
         <div class="nav-brand">ECAStats Builder</div>
         <div class="nav-right">
           <div class="nav-links">
-          <RouterLink to="/" class="nav-link" active-class="active">Chart Builder</RouterLink>
-          <RouterLink to="/dashboard" class="nav-link" active-class="active">Dashboard Builder</RouterLink>
-          <RouterLink to="/report" class="nav-link" active-class="active">Report Builder</RouterLink>
+          <RouterLink to="/projects" class="nav-link" active-class="active">Projects</RouterLink>
+          <RouterLink v-if="hasSelectedProject" to="/charts" class="nav-link" active-class="active">Charts</RouterLink>
+          <RouterLink v-if="hasSelectedProject" to="/datasets" class="nav-link" active-class="active">Datasets</RouterLink>
+          <RouterLink v-if="hasSelectedProject" to="/dashboard" class="nav-link" active-class="active">Dashboards</RouterLink>
+          <RouterLink v-if="hasSelectedProject" to="/report" class="nav-link" active-class="active">Reports</RouterLink>
           <RouterLink v-if="canAccessAdmin" to="/admin" class="nav-link" active-class="active">Admin</RouterLink>
+          </div>
+          <div class="project-picker">
+            <label for="projectSelect">Project</label>
+            <select
+              id="projectSelect"
+              v-model="selectedProjectId"
+              :disabled="projects.length === 0"
+            >
+              <option value="" disabled>Select project</option>
+              <option v-for="project in projects" :key="project.id" :value="project.id">
+                {{ project.name }}
+              </option>
+            </select>
           </div>
           <div class="auth-actions">
             <span v-if="userEmail" class="user-email">{{ userEmail }}</span>
@@ -92,6 +189,27 @@ body {
 .nav-links {
   display: flex;
   gap: 24px;
+}
+
+.project-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-picker label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.project-picker select {
+  height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0 8px;
+  background: #fff;
+  min-width: 160px;
 }
 
 .nav-right {

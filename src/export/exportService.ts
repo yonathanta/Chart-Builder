@@ -15,13 +15,22 @@ export type ExportOptions = {
   };
 };
 
+export type ProjectExportMetadata = {
+  selectedDatasetId?: string;
+  selectedDatasetName?: string;
+  activeFilters?: Array<{ column: string; values: string[] }>;
+  chartType?: string;
+  style?: ChartSpec["style"];
+  filteredData?: any[];
+};
+
 export interface ExportService {
   exportSVG(svg: SVGSVGElement, options?: ExportOptions): Promise<Blob>;
   exportPNG(svg: SVGSVGElement, options?: ExportOptions): Promise<Blob>;
   exportPDF(svg: SVGSVGElement, options?: ExportOptions): Promise<Blob>;
   exportHTML(svg: SVGSVGElement, spec: ChartSpec, options?: ExportOptions): Promise<Blob>;
   exportSpec(spec: ChartSpec, options?: ExportOptions): Promise<Blob>;
-  exportProject(spec: ChartSpec, data?: any[], options?: ExportOptions): Promise<Blob>;
+  exportProject(spec: ChartSpec, data?: any[], metadata?: ProjectExportMetadata): Promise<Blob>;
 }
 
 // Utility: serialize SVG to string with optional background rect.
@@ -141,12 +150,18 @@ export const exportService: ExportService = {
     return new Blob([json], { type: "application/json" });
   },
 
-  async exportProject(spec, data) {
+  async exportProject(spec, data, metadata) {
     const project = {
       version: "1.0",
       timestamp: new Date().toISOString(),
       spec,
-      data: data || []
+      data: data || [],
+      filteredData: metadata?.filteredData || [],
+      selectedDatasetId: metadata?.selectedDatasetId || "",
+      selectedDatasetName: metadata?.selectedDatasetName || "",
+      activeFilters: metadata?.activeFilters || [],
+      chartType: metadata?.chartType || spec.type,
+      style: metadata?.style || spec.style,
     };
     const json = JSON.stringify(project, null, 2);
     return new Blob([json], { type: "application/json" });

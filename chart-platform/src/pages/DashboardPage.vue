@@ -1,30 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProjectList, { type ProjectItem } from '../components/dashboard/ProjectList.vue'
+import dashboardService, { type DashboardDetails, type DashboardRecord, type DashboardChartLayout } from '@legacy/services/dashboardService'
 import chartService from '@legacy/services/chartService'
+import DashboardChartRenderer from '../components/dashboard/DashboardChartRenderer.vue'
 
 const router = useRouter()
 const route = useRoute()
 
-type DashboardChart = {
-  id: string
-  name: string
-  chartType: string
-  createdAt?: string
-  CreatedAt?: string
-}
-
 const projects: ProjectItem[] = [
-  { id: 'proj-001', name: 'Population Trends 2026', updatedAt: '2 hours ago' },
-  { id: 'proj-002', name: 'Regional GDP Comparison', updatedAt: 'Yesterday' },
-  { id: 'proj-003', name: 'Health Access Overview', updatedAt: '3 days ago' },
+  { id: '7441c7bc-1fdd-4f7b-91c3-3954fbec27ed', name: 'Population Trends', updatedAt: '2 hours ago' },
 ]
 
-const charts = ref<DashboardChart[]>([])
-const isLoadingCharts = ref(false)
+const dashboards = ref<DashboardRecord[]>([])
+const activeDashboardDetails = ref<DashboardDetails | null>(null)
 const chartsError = ref<string | null>(null)
-const deletingChartId = ref<string | null>(null)
+const isSavingLayout = ref(false)
 
 const activeProjectId = computed(() => {
   const projectIdFromRoute = route.query.projectId
@@ -48,67 +40,82 @@ function formatDate(value: string | undefined): string {
   return date.toLocaleDateString()
 }
 
-async function loadCharts(): Promise<void> {
+async function loadDashboard(): Promise<void> {
   if (!activeProjectId.value) {
-    charts.value = []
+    dashboards.value = []
+    activeDashboardDetails.value = null
     return
   }
 
-  isLoadingCharts.value = true
   chartsError.value = null
 
   try {
-    const response = await chartService.getCharts(activeProjectId.value)
-    charts.value = Array.isArray(response) ? (response as DashboardChart[]) : []
+    dashboards.value = await dashboardService.getDashboardsByProject(activeProjectId.value)
+    
+    if (dashboards.value.length > 0) {
+      activeDashboardDetails.value = await dashboardService.getDashboard(dashboards.value[0]!.id)
+    } else {
+      activeDashboardDetails.value = null
+    }
   } catch (error) {
-    console.error('Failed to load charts:', error)
-    chartsError.value = error instanceof Error ? error.message : 'Failed to load charts.'
-  } finally {
-    isLoadingCharts.value = false
+    console.error('Failed to load dashboard:', error)
+    chartsError.value = error instanceof Error ? error.message : 'Failed to load dashboard.'
   }
 }
 
-async function editChart(chartId: string): Promise<void> {
+async function handleUpdateLayout(payload: { id: string; width: number; height: number }) {
+  if (isSavingLayout.value) return
+  isSavingLayout.value = true
   try {
-    await chartService.getChart(chartId)
-    router.push({
-      name: 'chart-builder',
-      query: {
-        projectId: activeProjectId.value,
-        chartId,
-      },
+    const layout = activeDashboardDetails.value?.charts.find(c => c.id === payload.id);
+    if (!layout) return;
+
+    await dashboardService.updateChartLayout({
+      id: payload.id,
+      positionX: layout.positionX,
+      positionY: layout.positionY,
+      width: payload.width,
+      height: payload.height
     })
-  } catch (error) {
-    console.error('Failed to load chart for editing:', error)
-    chartsError.value = error instanceof Error ? error.message : 'Failed to open chart for editing.'
-  }
-}
-
-async function deleteChart(chartId: string): Promise<void> {
-  if (deletingChartId.value) {
-    return
-  }
-
-  deletingChartId.value = chartId
-  chartsError.value = null
-
-  try {
-    await chartService.deleteChart(chartId)
-    charts.value = charts.value.filter((chart) => chart.id !== chartId)
-  } catch (error) {
-    console.error('Failed to delete chart:', error)
-    chartsError.value = error instanceof Error ? error.message : 'Failed to delete chart.'
+    
+    // Update local state without refetching fully to be smooth
+    layout.width = payload.width
+    layout.height = payload.height
+  } catch (err) {
+    console.error('Failed to save layout:', err)
   } finally {
-    deletingChartId.value = null
+    isSavingLayout.value = false
   }
 }
 
 onMounted(async () => {
-  await loadCharts()
+  await loadDashboard()
+})
+
+watch(activeProjectId, () => {
+  loadDashboard()
 })
 
 function createNewProject(): void {
   router.push('/chart-builder')
+}
+
+const showShareModal = ref(false)
+const embedCode = computed(() => {
+  if (!activeDashboardDetails.value) return ''
+  const baseUrl = window.location.origin
+  const embedUrl = `${baseUrl}/api/dashboards/${activeDashboardDetails.value.id}/embed`
+  return `<iframe src="${embedUrl}" width="100%" height="700" frameborder="0"></iframe>`
+})
+
+function copyEmbedCode() {
+  navigator.clipboard.writeText(embedCode.value)
+  alert('Embed code copied to clipboard!')
+}
+
+function openShareHtml() {
+  if (!activeDashboardDetails.value) return
+  window.open(`/api/dashboards/${activeDashboardDetails.value.id}/share-html`, '_blank')
 }
 </script>
 
@@ -128,35 +135,45 @@ function createNewProject(): void {
 
     <section class="charts-panel">
       <div class="charts-panel__header">
-        <h2>Charts</h2>
-        <p>Project: {{ activeProjectId || 'No project selected' }}</p>
+        <div>
+          <h2>{{ activeDashboardDetails ? activeDashboardDetails.name : 'Dashboard' }}</h2>
+          <p>Project: {{ activeProjectId || 'No project selected' }}</p>
+        </div>
+        <div v-if="activeDashboardDetails" class="header-actions">
+          <button type="button" class="btn-secondary" @click="openShareHtml">View Shared HTML</button>
+          <button type="button" class="btn-primary" @click="showShareModal = true">Share / Embed</button>
+        </div>
       </div>
 
-      <p v-if="isLoadingCharts" class="charts-panel__status">Loading charts…</p>
-      <p v-else-if="chartsError" class="charts-panel__error">{{ chartsError }}</p>
-      <p v-else-if="charts.length === 0" class="charts-panel__status">No charts found.</p>
+      <p v-if="chartsError" class="charts-panel__error">{{ chartsError }}</p>
+      <p v-else-if="!activeDashboardDetails?.charts?.length" class="charts-panel__status">No charts added to dashboard yet.</p>
 
-      <ul v-else class="charts-list">
-        <li v-for="chart in charts" :key="chart.id" class="charts-list__item">
-          <div class="chart-meta">
-            <h3>{{ chart.name }}</h3>
-            <p>Type: {{ chart.chartType }}</p>
-            <p>Created: {{ formatDate(chart.createdAt ?? chart.CreatedAt) }}</p>
-          </div>
-          <div class="chart-actions">
-            <button type="button" class="edit-button" @click="editChart(chart.id)">Edit</button>
-            <button
-              type="button"
-              class="delete-button"
-              :disabled="deletingChartId === chart.id"
-              @click="deleteChart(chart.id)"
-            >
-              {{ deletingChartId === chart.id ? 'Deleting…' : 'Delete' }}
-            </button>
-          </div>
-        </li>
-      </ul>
+      <div v-else class="dashboard-grid">
+        <DashboardChartRenderer
+          v-for="layout in activeDashboardDetails.charts"
+          :key="layout.id"
+          :layout="layout"
+          @update-layout="handleUpdateLayout"
+        />
+      </div>
     </section>
+
+    <!-- Share Modal -->
+    <div v-if="showShareModal" class="modal-overlay" @click.self="showShareModal = false">
+      <div class="modal-content">
+        <h3>Share Dashboard</h3>
+        <p>Copy the code below to embed this dashboard in your website or application.</p>
+        
+        <div class="embed-code-box">
+          <code>{{ embedCode }}</code>
+        </div>
+        
+        <div class="modal-actions">
+          <button class="btn-secondary" @click="showShareModal = false">Close</button>
+          <button class="btn-primary" @click="copyEmbedCode">Copy Code</button>
+        </div>
+      </div>
+    </div>
   </main>
 </template>
 
@@ -231,57 +248,86 @@ function createNewProject(): void {
   color: #dc2626;
 }
 
-.charts-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.dashboard-grid {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
 }
 
-.charts-list__item {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.chart-meta h3 {
-  margin: 0 0 4px;
-  font-size: 1rem;
-}
-
-.chart-meta p {
-  margin: 2px 0;
-  color: #4b5563;
-  font-size: 0.875rem;
-}
-
-.chart-actions {
+.header-actions {
   display: flex;
   gap: 8px;
 }
 
-.edit-button,
-.delete-button {
-  height: 34px;
-  padding: 0 12px;
+.btn-primary {
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 8px 16px;
   border-radius: 6px;
-  border: 1px solid #d1d5db;
-  background: #ffffff;
   cursor: pointer;
+  font-weight: 500;
 }
 
-.delete-button {
-  color: #b91c1c;
+.btn-secondary {
+  background: white;
+  color: #1e293b;
+  border: 1px solid #e2e8f0;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
 }
 
-.delete-button:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 24px;
+  border-radius: 12px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.embed-code-box {
+  background: #f1f5f9;
+  padding: 12px;
+  border-radius: 6px;
+  margin: 16px 0;
+  font-size: 0.875rem;
+  word-break: break-all;
+  border: 1px solid #e2e8f0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-grid {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .dashboard-grid > * {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 300px;
+  }
 }
 </style>

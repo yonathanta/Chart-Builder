@@ -14,12 +14,22 @@ public sealed class AppDbContext : DbContext
     public DbSet<User> Users { get; private set; } = null!;
     public DbSet<Project> Projects { get; private set; } = null!;
     public DbSet<Chart> Charts { get; private set; } = null!;
+    public DbSet<Dataset> Datasets { get; private set; } = null!;
+    public DbSet<Dashboard> Dashboards { get; private set; } = null!;
+    public DbSet<DashboardChart> DashboardCharts { get; private set; } = null!;
     public DbSet<ProjectMember> ProjectMembers { get; private set; } = null!;
     public DbSet<AuditLog> AuditLogs { get; private set; } = null!;
     public DbSet<Report> Reports { get; private set; } = null!;
+    public DbSet<ReportChart> ReportCharts { get; private set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ApplicationUser>(entity =>
+        {
+            entity.ToTable("AspNetUsers", table => table.ExcludeFromMigrations());
+            entity.HasKey(user => user.Id);
+        });
+
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasKey(user => user.Id);
@@ -53,6 +63,12 @@ public sealed class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired();
 
+            entity.HasMany(project => project.Datasets)
+                .WithOne(dataset => dataset.Project)
+                .HasForeignKey(dataset => dataset.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+
             entity.HasMany(project => project.ProjectMembers)
                 .WithOne(projectMember => projectMember.Project)
                 .HasForeignKey(projectMember => projectMember.ProjectId)
@@ -64,11 +80,77 @@ public sealed class AppDbContext : DbContext
                 .HasForeignKey(report => report.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired();
+
+            entity.HasMany(project => project.Dashboards)
+                .WithOne(dashboard => dashboard.Project)
+                .HasForeignKey(dashboard => dashboard.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
         });
+
+            modelBuilder.Entity<Dataset>(entity =>
+            {
+                entity.HasKey(dataset => dataset.Id);
+                entity.Property(dataset => dataset.Name).HasMaxLength(200).IsRequired();
+                entity.Property(dataset => dataset.Description).HasMaxLength(2000).IsRequired(false);
+                entity.Property(dataset => dataset.UserId).HasMaxLength(450).IsRequired();
+                entity.Property(dataset => dataset.DataJson).HasColumnType("nvarchar(max)").IsRequired();
+                entity.Property(dataset => dataset.SourceType).HasMaxLength(50).IsRequired();
+                entity.Property(dataset => dataset.CreatedAt).IsRequired();
+                entity.HasIndex(dataset => dataset.ProjectId);
+                entity.HasIndex(dataset => dataset.UserId);
+            });
 
         modelBuilder.Entity<Chart>(entity =>
         {
             entity.HasKey(chart => chart.Id);
+            entity.Property(chart => chart.Name).HasMaxLength(200).IsRequired();
+            entity.Property(chart => chart.ChartType).HasMaxLength(80).IsRequired();
+            entity.Property(chart => chart.ConfigJson).HasColumnType("nvarchar(max)").IsRequired();
+            entity.Property(chart => chart.StyleJson).HasColumnType("nvarchar(max)").IsRequired();
+            entity.HasIndex(chart => chart.ProjectId);
+            entity.HasIndex(chart => chart.DatasetId);
+
+            entity.HasOne(chart => chart.Dataset)
+                .WithMany(dataset => dataset.Charts)
+                .HasForeignKey(chart => chart.DatasetId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+
+            entity.HasMany(chart => chart.DashboardCharts)
+                .WithOne(dashboardChart => dashboardChart.Chart)
+                .HasForeignKey(dashboardChart => dashboardChart.ChartId)
+                .OnDelete(DeleteBehavior.NoAction)
+                .IsRequired();
+
+            entity.HasMany(chart => chart.ReportCharts)
+                .WithOne(reportChart => reportChart.Chart)
+                .HasForeignKey(reportChart => reportChart.ChartId)
+                .OnDelete(DeleteBehavior.NoAction)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity<Dashboard>(entity =>
+        {
+            entity.HasKey(dashboard => dashboard.Id);
+            entity.Property(dashboard => dashboard.Name).HasMaxLength(200).IsRequired();
+            entity.Property(dashboard => dashboard.UserId).HasMaxLength(450).IsRequired();
+            entity.HasIndex(dashboard => dashboard.ProjectId);
+            entity.HasIndex(dashboard => dashboard.UpdatedAt);
+
+            entity.HasMany(dashboard => dashboard.DashboardCharts)
+                .WithOne(dashboardChart => dashboardChart.Dashboard)
+                .HasForeignKey(dashboardChart => dashboardChart.DashboardId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity<DashboardChart>(entity =>
+        {
+            entity.HasKey(dashboardChart => dashboardChart.Id);
+            entity.HasIndex(dashboardChart => dashboardChart.DashboardId);
+            entity.HasIndex(dashboardChart => dashboardChart.ChartId);
+            entity.HasIndex(dashboardChart => new { dashboardChart.DashboardId, dashboardChart.ChartId }).IsUnique();
         });
 
         modelBuilder.Entity<ProjectMember>(entity =>
@@ -92,11 +174,28 @@ public sealed class AppDbContext : DbContext
         modelBuilder.Entity<Report>(entity =>
         {
             entity.HasKey(report => report.Id);
+            entity.Property(report => report.Name).HasMaxLength(200).IsRequired();
             entity.Property(report => report.Title).HasMaxLength(200).IsRequired();
+            entity.Property(report => report.UserId).HasMaxLength(450).IsRequired(false);
             entity.Property(report => report.MetadataJson).HasColumnType("nvarchar(max)").IsRequired();
             entity.Property(report => report.LayoutJson).HasColumnType("nvarchar(max)").IsRequired();
             entity.HasIndex(report => report.ProjectId);
             entity.HasIndex(report => report.UpdatedAt);
+
+            entity.HasMany(report => report.ReportCharts)
+                .WithOne(reportChart => reportChart.Report)
+                .HasForeignKey(reportChart => reportChart.ReportId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity<ReportChart>(entity =>
+        {
+            entity.HasKey(reportChart => reportChart.Id);
+            entity.HasIndex(reportChart => reportChart.ReportId);
+            entity.HasIndex(reportChart => reportChart.ChartId);
+            entity.HasIndex(reportChart => new { reportChart.ReportId, reportChart.ChartId }).IsUnique();
+            entity.HasIndex(reportChart => new { reportChart.ReportId, reportChart.OrderIndex }).IsUnique();
         });
 
         base.OnModelCreating(modelBuilder);

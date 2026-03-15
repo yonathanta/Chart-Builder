@@ -38,6 +38,18 @@ public sealed class User : BaseEntity
         CreatedAt = DateTime.UtcNow;
     }
 
+    public User(
+        Guid id,
+        string email,
+        string passwordHash,
+        string fullName,
+        UserRole role = UserRole.Viewer,
+        bool isActive = true)
+        : this(email, passwordHash, fullName, role, isActive)
+    {
+        Id = id;
+    }
+
     public void AddProject(Project project)
     {
         _projects.Add(project);

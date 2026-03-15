@@ -12,10 +12,13 @@ public sealed class CreateChartDto
     public string ChartType { get; init; } = string.Empty;
 
     [Required]
-    public string Configuration { get; init; } = string.Empty;
+    public string ConfigJson { get; init; } = string.Empty;
 
     [Required]
-    public string Dataset { get; init; } = string.Empty;
+    public string StyleJson { get; init; } = string.Empty;
+
+    [Required]
+    public Guid DatasetId { get; init; }
 
     [Required]
     public Guid ProjectId { get; init; }

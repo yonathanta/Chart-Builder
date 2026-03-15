@@ -21,8 +21,9 @@ public sealed class ChartService : IChartService
         var chart = new Chart(
             name: request.Name.Trim(),
             chartType: request.ChartType.Trim(),
-            configuration: request.Configuration.Trim(),
-            dataset: request.Dataset.Trim(),
+            configJson: request.ConfigJson.Trim(),
+            styleJson: request.StyleJson.Trim(),
+            datasetId: request.DatasetId,
             projectId: request.ProjectId);
 
         await _dbContext.Charts.AddAsync(chart, cancellationToken);
@@ -44,14 +45,13 @@ public sealed class ChartService : IChartService
         var chart = await _dbContext.Charts
             .Include(candidate => candidate.Project)
             .ThenInclude(project => project!.ProjectMembers)
-            .FirstOrDefaultAsync(candidate => candidate.Id == chartId, cancellationToken);
+            .FirstOrDefaultAsync(candidate => candidate.Id == chartId && candidate.Project != null && candidate.Project.UserId == userId, cancellationToken);
 
         if (chart is null || chart.Project is null)
         {
             return null;
         }
 
-        EnsureCanEditChart(chart.Project, userId);
         EnsureNotPublished(chart);
 
         var oldValue = BuildChartSnapshot(chart);
@@ -59,8 +59,9 @@ public sealed class ChartService : IChartService
         chart.UpdateDetails(
             name: request.Name.Trim(),
             chartType: request.ChartType.Trim(),
-            configuration: request.Configuration.Trim(),
-            dataset: request.Dataset.Trim());
+            configJson: request.ConfigJson.Trim(),
+            styleJson: request.StyleJson.Trim(),
+            datasetId: request.DatasetId);
 
         _auditLogService.Add(
             userId: userId,
@@ -79,14 +80,13 @@ public sealed class ChartService : IChartService
         var chart = await _dbContext.Charts
             .Include(candidate => candidate.Project)
             .ThenInclude(project => project!.ProjectMembers)
-            .FirstOrDefaultAsync(candidate => candidate.Id == chartId, cancellationToken);
+            .FirstOrDefaultAsync(candidate => candidate.Id == chartId && candidate.Project != null && candidate.Project.UserId == userId, cancellationToken);
 
         if (chart is null || chart.Project is null)
         {
             return false;
         }
 
-        EnsureCanEditChart(chart.Project, userId);
         EnsureNotPublished(chart);
 
         _dbContext.Charts.Remove(chart);
@@ -104,14 +104,13 @@ public sealed class ChartService : IChartService
         var chart = await _dbContext.Charts
             .Include(candidate => candidate.Project)
             .ThenInclude(project => project!.ProjectMembers)
-            .FirstOrDefaultAsync(candidate => candidate.Id == chartId, cancellationToken);
+            .FirstOrDefaultAsync(candidate => candidate.Id == chartId && candidate.Project != null && candidate.Project.UserId == userId, cancellationToken);
 
         if (chart is null || chart.Project is null)
         {
             return null;
         }
 
-        ResolveProjectRole(chart.Project, userId);
         EnsureStatusTransitionAllowed(chart.Status, targetStatus, userRole);
 
         var oldStatus = chart.Status;
@@ -136,8 +135,9 @@ public sealed class ChartService : IChartService
         {
             chart.Name,
             chart.ChartType,
-            chart.Configuration,
-            chart.Dataset,
+            chart.ConfigJson,
+            chart.StyleJson,
+            chart.DatasetId,
             chart.ProjectId,
             status = chart.Status.ToString(),
             chart.UpdatedAt,

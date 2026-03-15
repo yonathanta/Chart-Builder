@@ -17,6 +17,11 @@ export interface Project {
     createdAt: number
 }
 
+export interface SelectedProject {
+    id: string
+    name: string
+}
+
 export interface Dashboard {
     id: string
     name: string
@@ -197,6 +202,19 @@ export const useProjectStore = defineStore('projects', () => {
         }
     }
 
+    const setCurrentProject = (project: SelectedProject | null) => {
+        if (!project) {
+            currentProject.value = null
+            return
+        }
+
+        currentProject.value = {
+            id: project.id,
+            name: project.name,
+            createdAt: Date.now()
+        }
+    }
+
     return {
         projects,
         currentProject,
@@ -210,6 +228,7 @@ export const useProjectStore = defineStore('projects', () => {
         loadChartsByProject,
         loadDashboardsByProject,
         loadReportsByProject,
-        selectProject
+        selectProject,
+        setCurrentProject
     }
 })

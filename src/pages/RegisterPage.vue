@@ -102,8 +102,13 @@ function applyServerErrors(error: unknown): string {
         continue
       }
 
+      const firstMessage = messages[0]
+      if (!firstMessage) {
+        continue
+      }
+
       const formKey = toFormKey(rawKey)
-      errors[formKey] = messages[0]
+      errors[formKey] = firstMessage
     }
 
     if (fieldEntries.length > 0) {
@@ -112,7 +117,10 @@ function applyServerErrors(error: unknown): string {
   }
 
   if (Array.isArray(data.details) && data.details.length > 0) {
-    return data.details[0]
+    const firstDetail = data.details[0]
+    if (firstDetail) {
+      return firstDetail
+    }
   }
 
   const apiMessage = data.error ?? data.message ?? data.title
@@ -149,7 +157,10 @@ async function handleSubmit(): Promise<void> {
       confirmPassword: form.confirmPassword,
     })
 
-    successMessage.value = 'Registration submitted. Awaiting admin approval.'
+    successMessage.value = 'Registration successful. You can now login.'
+    setTimeout(() => {
+      router.push('/login')
+    }, 800)
   } catch (error) {
     submitError.value = applyServerErrors(error)
   } finally {
