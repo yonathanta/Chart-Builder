@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import ReportSelectionBar from '../components/report-builder/ReportSelectionBar.vue'
@@ -233,7 +233,7 @@ const reportSurfaceStyle = computed(() => ({
   padding: `${Math.round(pageMarginMm.value * MM_TO_PX)}px`,
   gap: `${blockSpacingPx.value}px`,
   width: `${A4_WIDTH_PX}px`,
-  minHeight: `${A4_HEIGHT_PX}px`,
+  height: `${A4_HEIGHT_PX}px`,
 }))
 
 const reportCanvasStyle = computed(() => {
@@ -377,12 +377,38 @@ function createBlock(kind: BlockKind): ReportBlockItem {
     page: 'New Page',
   }
 
+  const textLike = kind === 'section'
+    || kind === 'title'
+    || kind === 'subtitle'
+    || kind === 'paragraph'
+    || kind === 'notes'
+    || kind === 'source'
+
+  const textIndex = blocks.value.filter((item) =>
+    item.kind === 'section'
+    || item.kind === 'title'
+    || item.kind === 'subtitle'
+    || item.kind === 'paragraph'
+    || item.kind === 'notes'
+    || item.kind === 'source'
+  ).length
+
   return {
     id: crypto.randomUUID(),
     kind,
     orderIndex: blocks.value.length,
     text: placeholders[kind],
     mediaUrl: '',
+    layout: textLike
+      ? {
+          ...defaultBlockLayout(),
+          enabled: true,
+          width: 620,
+          height: kind === 'paragraph' ? 220 : kind === 'source' ? 140 : 120,
+          x: 28 + ((textIndex % 2) * 14),
+          y: 120 + (textIndex * 36),
+        }
+      : undefined,
   }
 }
 
@@ -738,11 +764,6 @@ async function addChart(chartId: string): Promise<void> {
     return
   }
 
-  if (layoutItems.value.some((item) => item.chartId === chartId)) {
-    setMessage('Chart is already part of this report.')
-    return
-  }
-
   saving.value = true
 
   try {
@@ -1033,6 +1054,40 @@ function chartTypeIconLabel(type: string): string {
   return normalized.slice(0, 3).toUpperCase()
 }
 
+function isDeletableBlock(block: ReportBlockItem): boolean {
+  return block.kind !== 'page'
+}
+
+async function deleteBlock(block: ReportBlockItem): Promise<void> {
+  if (saving.value) {
+    return
+  }
+
+  if (block.kind === 'chart' && block.chartRefId) {
+    saving.value = true
+    try {
+      await reportService.removeReportChart(block.chartRefId)
+      layoutItems.value = layoutItems.value.filter((item) => item.id !== block.chartRefId)
+      blocks.value = normalizeOrder(blocks.value.filter((item) => item.id !== block.id))
+      if (activeTransformBlockId.value === block.id) {
+        activeTransformBlockId.value = ''
+      }
+      setMessage('Chart removed from report.')
+    } catch {
+      setMessage('Failed to remove chart from report.')
+    } finally {
+      saving.value = false
+    }
+    return
+  }
+
+  blocks.value = normalizeOrder(blocks.value.filter((item) => item.id !== block.id))
+  if (activeTransformBlockId.value === block.id) {
+    activeTransformBlockId.value = ''
+  }
+  setMessage('Block removed.')
+}
+
 function blockStyle(block: ReportBlockItem): Record<string, string> {
   const layout = block.layout
   if (!layout?.enabled) {
@@ -1149,8 +1204,41 @@ function onPointerMove(event: MouseEvent): void {
 
   const dx = event.clientX - dragState.startX
   const dy = event.clientY - dragState.startY
+  const block = blocks.value.find((item) => item.id === dragState.blockId)
 
   if (dragState.mode === 'move') {
+    if (block?.layout?.enabled) {
+      const nextY = dragState.originY + dy
+      const currentPageIndex = getPageIndexForBlock(dragState.blockId)
+      const pageShiftThreshold = 40
+
+      if (nextY < -pageShiftThreshold && currentPageIndex > 0) {
+        const shiftedY = Math.max(20, A4_HEIGHT_PX - block.layout.height - 40)
+        moveBlockToPage(dragState.blockId, currentPageIndex - 1, shiftedY)
+        dragState = {
+          ...dragState,
+          startX: event.clientX,
+          startY: event.clientY,
+          originX: block.layout.x,
+          originY: shiftedY,
+        }
+        return
+      }
+
+      if (nextY + block.layout.height > A4_HEIGHT_PX + pageShiftThreshold && currentPageIndex < reportPages.value.length - 1) {
+        const shiftedY = 28
+        moveBlockToPage(dragState.blockId, currentPageIndex + 1, shiftedY)
+        dragState = {
+          ...dragState,
+          startX: event.clientX,
+          startY: event.clientY,
+          originX: block.layout.x,
+          originY: shiftedY,
+        }
+        return
+      }
+    }
+
     updateBlockLayout(dragState.blockId, {
       x: Math.max(0, dragState.originX + dx),
       y: Math.max(0, dragState.originY + dy),
@@ -1175,6 +1263,62 @@ function updateSelectedChartOptions(patch: Partial<ChartDisplayOptions>): void {
   }
 
   updateChartOptions(block.id, patch)
+}
+
+function getPageIndexForBlock(blockId: string): number {
+  let pageIndex = 0
+
+  for (const block of sortedBlocks.value) {
+    if (block.kind === 'page') {
+      pageIndex += 1
+      continue
+    }
+
+    if (block.id === blockId) {
+      return pageIndex
+    }
+  }
+
+  return 0
+}
+
+function pageInsertIndex(pageIndex: number, ordered: ReportBlockItem[]): number {
+  let cursorPage = 0
+
+  for (let index = 0; index < ordered.length; index += 1) {
+    const item = ordered[index]
+    if (!item) {
+      continue
+    }
+
+    if (item.kind === 'page') {
+      if (cursorPage === pageIndex) {
+        return index
+      }
+      cursorPage += 1
+    }
+  }
+
+  return ordered.length
+}
+
+function moveBlockToPage(blockId: string, targetPageIndex: number, nextY: number): void {
+  const ordered = [...sortedBlocks.value]
+  const currentIndex = ordered.findIndex((item) => item.id === blockId)
+  if (currentIndex < 0) {
+    return
+  }
+
+  const [movedBlock] = ordered.splice(currentIndex, 1)
+  if (!movedBlock) {
+    return
+  }
+
+  const safePageIndex = Math.max(0, Math.min(targetPageIndex, reportPages.value.length - 1))
+  const insertIndex = pageInsertIndex(safePageIndex, ordered)
+  ordered.splice(insertIndex, 0, movedBlock)
+  blocks.value = normalizeOrder(ordered)
+  updateBlockLayout(blockId, { y: nextY })
 }
 
 function getFigureNumber(blockId: string): number {
@@ -1229,26 +1373,55 @@ function applyChartOptions(block: ReportBlockItem, chart: RenderableChart | null
   const titleText = options.showTitle ? options.titleOverride.trim() : ''
 
   config.title = titleText
+  config.animation = false
 
   const lineConfig = toRecord(config.lineConfig)
   lineConfig.title = titleText
+  lineConfig.animate = false
+  lineConfig.duration = 0
   config.lineConfig = lineConfig
 
   const areaConfig = toRecord(config.areaConfig)
   areaConfig.title = titleText
+  areaConfig.animate = false
+  areaConfig.duration = 0
   config.areaConfig = areaConfig
 
   const scatterConfig = toRecord(config.scatterConfig)
   scatterConfig.showLegend = options.showLegend
+  scatterConfig.animationDuration = 0
   config.scatterConfig = scatterConfig
 
   const stackedBarConfig = toRecord(config.stackedBarConfig)
   stackedBarConfig.showLegend = options.showLegend
+  stackedBarConfig.animationDuration = 0
   config.stackedBarConfig = stackedBarConfig
 
   const pieConfig = toRecord(config.pieConfig)
   pieConfig.showLegend = options.showLegend
+  pieConfig.animationDuration = 0
   config.pieConfig = pieConfig
+
+  const barConfig = toRecord(config.barConfig)
+  barConfig.animationDuration = 0
+  barConfig.staggerDelay = 0
+  config.barConfig = barConfig
+
+  const mapConfig = toRecord(config.mapConfig)
+  mapConfig.animationDuration = 0
+  config.mapConfig = mapConfig
+
+  const bubbleConfig = toRecord(config.bubbleConfig)
+  bubbleConfig.animationDuration = 0
+  config.bubbleConfig = bubbleConfig
+
+  const dotDonutConfig = toRecord(config.dotDonutConfig)
+  dotDonutConfig.animationDuration = 0
+  config.dotDonutConfig = dotDonutConfig
+
+  const orbitDonutConfig = toRecord(config.orbitDonutConfig)
+  orbitDonutConfig.animationDuration = 0
+  config.orbitDonutConfig = orbitDonutConfig
 
   config.showLegend = options.showLegend
   next.config = config
@@ -1281,40 +1454,128 @@ async function copyText(value: string, successMessage: string): Promise<void> {
   }
 }
 
-async function renderPdf(): Promise<jsPDF | null> {
+function sanitizePrintPage(page: HTMLElement): HTMLElement {
+  const clone = page.cloneNode(true) as HTMLElement
+
+  clone.querySelectorAll('.transform-controls, .delete-handle, .page-banner').forEach((node) => node.remove())
+  clone.querySelectorAll('.report-block--active').forEach((node) => node.classList.remove('report-block--active'))
+
+  const originalFields = page.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea')
+  const clonedFields = clone.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea')
+  originalFields.forEach((field, index) => {
+    const target = clonedFields[index]
+    if (!target) {
+      return
+    }
+
+    if (target instanceof HTMLTextAreaElement && field instanceof HTMLTextAreaElement) {
+      target.textContent = field.value
+      target.value = field.value
+      return
+    }
+
+    target.setAttribute('value', field.value)
+    target.value = field.value
+  })
+
+  return clone
+}
+
+function collectPrintDocument(): string {
+  const element = reportCaptureRef.value
+  if (!element) {
+    return ''
+  }
+
+  const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+    .map((node) => node.outerHTML)
+    .join('\n')
+
+  const pages = Array.from(element.querySelectorAll<HTMLElement>('.report-page'))
+    .map((page) => sanitizePrintPage(page).outerHTML)
+    .join('\n')
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Report export</title>
+    ${styles}
+    <style>
+      @page {
+        size: A4;
+        margin: 0;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px 0;
+        background: #eef2f7;
+      }
+
+      .report-page {
+        width: ${A4_WIDTH_PX}px !important;
+        height: ${A4_HEIGHT_PX}px !important;
+        min-height: ${A4_HEIGHT_PX}px !important;
+        margin: 0 auto 16px !important;
+        break-after: page;
+        page-break-after: always;
+        overflow: hidden !important;
+        box-shadow: none !important;
+      }
+
+      .report-page:last-child {
+        break-after: auto;
+        page-break-after: auto;
+      }
+
+      .report-block {
+        box-shadow: none !important;
+      }
+
+      .report-block--floating,
+      .report-block--active {
+        box-shadow: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    ${pages}
+  </body>
+</html>`
+}
+
+async function openPrintExport(autoPrint: boolean): Promise<void> {
   const element = reportCaptureRef.value
   if (!element) {
     setMessage('Report preview area is not available.')
-    return null
+    return
   }
 
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: '#ffffff',
-  })
+  await nextTick()
 
-  const imageData = canvas.toDataURL('image/png')
-  const pdf = new jsPDF('p', 'mm', 'a4')
-  const pageWidth = pdf.internal.pageSize.getWidth()
-  const pageHeight = pdf.internal.pageSize.getHeight()
-
-  const imageWidth = pageWidth
-  const imageHeight = (canvas.height * imageWidth) / canvas.width
-  let heightLeft = imageHeight
-  let position = 0
-
-  pdf.addImage(imageData, 'PNG', 0, position, imageWidth, imageHeight, undefined, 'FAST')
-  heightLeft -= pageHeight
-
-  while (heightLeft > 0) {
-    position -= pageHeight
-    pdf.addPage()
-    pdf.addImage(imageData, 'PNG', 0, position, imageWidth, imageHeight, undefined, 'FAST')
-    heightLeft -= pageHeight
+  const pages = Array.from(element.querySelectorAll<HTMLElement>('.report-page'))
+  if (pages.length === 0) {
+    setMessage('No report pages are available for export.')
+    return
   }
 
-  return pdf
+  const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1280,height=960')
+  if (!printWindow) {
+    setMessage('Popup blocked. Allow popups to export the report.')
+    return
+  }
+
+  printWindow.document.open()
+  printWindow.document.write(collectPrintDocument())
+  printWindow.document.close()
+
+  if (autoPrint) {
+    printWindow.addEventListener('load', () => {
+      printWindow.focus()
+      printWindow.print()
+    }, { once: true })
+  }
 }
 
 function buildPdfFileName(): string {
@@ -1331,12 +1592,8 @@ async function exportPdf(): Promise<void> {
 
   exporting.value = true
   try {
-    const pdf = await renderPdf()
-    if (!pdf) {
-      return
-    }
-    pdf.save(buildPdfFileName())
-    setMessage('PDF exported.')
+    await openPrintExport(true)
+    setMessage('Print view opened. Save as PDF from the print dialog.')
   } catch {
     setMessage('Failed to export PDF.')
   } finally {
@@ -1351,14 +1608,7 @@ async function previewPdf(): Promise<void> {
 
   exporting.value = true
   try {
-    const pdf = await renderPdf()
-    if (!pdf) {
-      return
-    }
-    const blob = pdf.output('blob')
-    const url = URL.createObjectURL(blob)
-    window.open(url, '_blank', 'noopener')
-    setTimeout(() => URL.revokeObjectURL(url), 30000)
+    await openPrintExport(false)
   } catch {
     setMessage('Failed to preview PDF.')
   } finally {
@@ -1733,6 +1983,16 @@ onBeforeUnmount(() => {
               @click.stop="handleBlockSelect(block)"
               @mousedown.left.stop="startDirectMove(block, $event)"
             >
+              <button
+                v-if="!previewMode && !exporting && isDeletableBlock(block) && activeTransformBlockId === block.id"
+                class="delete-handle"
+                type="button"
+                title="Delete block"
+                @click.stop="deleteBlock(block)"
+              >
+                ×
+              </button>
+
               <template v-if="block.kind === 'chart'">
                 <template v-if="findChartForBlock(block)">
                   <template v-if="chartRendererForBlock(block)">
@@ -1830,7 +2090,7 @@ onBeforeUnmount(() => {
               </template>
 
               <div
-                v-if="!previewMode && isMovableBlock(block) && block.layout?.enabled && activeTransformBlockId === block.id"
+                v-if="!previewMode && !exporting && isMovableBlock(block) && block.layout?.enabled && activeTransformBlockId === block.id"
                 class="transform-controls"
               >
                 <button class="transform-btn" @mousedown.stop.prevent="startMove(block.id, $event)">Move</button>
@@ -2172,6 +2432,7 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 10px;
   background: #ffffff;
+  overflow: hidden;
 }
 
 .report-page + .report-page {
@@ -2204,6 +2465,30 @@ onBeforeUnmount(() => {
 
 .report-block--active {
   box-shadow: 0 0 0 2px rgba(15, 79, 168, 0.35), 0 8px 18px rgba(15, 23, 42, 0.16);
+}
+
+.delete-handle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 6;
+  box-shadow: 0 6px 12px rgba(127, 29, 29, 0.24);
+}
+
+.delete-handle:hover {
+  background: #b91c1c;
 }
 
 .chart-controls {
