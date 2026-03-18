@@ -122,11 +122,22 @@ const message = ref('')
 const previewMode = ref(initialMode === 'preview')
 const pageMarginMm = ref(10)
 const blockSpacingPx = ref(16)
-const blockToInsert = ref<BlockKind>('section')
 const selectedChartControlBlockId = ref('')
 const addPageAfterIndex = ref(0)
 const activeTransformBlockId = ref('')
 const reportZoomPercent = ref(100)
+
+const quickInsertBlocks: Array<{
+  kind: 'title' | 'subtitle' | 'paragraph' | 'image' | 'video'
+  label: string
+  icon: string
+}> = [
+  { kind: 'title', label: 'Title', icon: 'T' },
+  { kind: 'subtitle', label: 'Subtitle', icon: 'ST' },
+  { kind: 'paragraph', label: 'Paragraph', icon: 'P' },
+  { kind: 'image', label: 'Image', icon: 'IMG' },
+  { kind: 'video', label: 'Video', icon: 'VID' },
+]
 
 const chartSearch = ref('')
 const chartTypeFilter = ref('all')
@@ -203,19 +214,6 @@ const reportZoomScale = computed(() => {
 const selectedChartControlBlock = computed(() =>
   chartBlocks.value.find((block) => block.id === selectedChartControlBlockId.value) ?? null
 )
-
-const selectedMovableBlock = computed(() => {
-  if (!activeTransformBlockId.value) {
-    return null
-  }
-
-  const block = blocks.value.find((item) => item.id === activeTransformBlockId.value) ?? null
-  if (!block || !isMovableBlock(block)) {
-    return null
-  }
-
-  return block
-})
 
 const selectedChartControlOptions = computed(() => {
   const block = selectedChartControlBlock.value
@@ -384,13 +382,17 @@ function createBlock(kind: BlockKind): ReportBlockItem {
     || kind === 'notes'
     || kind === 'source'
 
-  const textIndex = blocks.value.filter((item) =>
+  const mediaLike = kind === 'image' || kind === 'video'
+
+  const movableTextOrMediaIndex = blocks.value.filter((item) =>
     item.kind === 'section'
     || item.kind === 'title'
     || item.kind === 'subtitle'
     || item.kind === 'paragraph'
     || item.kind === 'notes'
     || item.kind === 'source'
+    || item.kind === 'image'
+    || item.kind === 'video'
   ).length
 
   return {
@@ -399,14 +401,28 @@ function createBlock(kind: BlockKind): ReportBlockItem {
     orderIndex: blocks.value.length,
     text: placeholders[kind],
     mediaUrl: '',
-    layout: textLike
+    layout: textLike || mediaLike
       ? {
           ...defaultBlockLayout(),
           enabled: true,
-          width: 620,
-          height: kind === 'paragraph' ? 220 : kind === 'source' ? 140 : 120,
-          x: 28 + ((textIndex % 2) * 14),
-          y: 120 + (textIndex * 36),
+          width: mediaLike ? 640 : kind === 'title' ? 700 : kind === 'subtitle' ? 660 : 620,
+          height: mediaLike
+            ? 360
+            : kind === 'title'
+              ? 140
+              : kind === 'section'
+                ? 130
+                : kind === 'subtitle'
+                  ? 110
+                  : kind === 'paragraph'
+                    ? 260
+                    : kind === 'notes'
+                      ? 200
+                      : kind === 'source'
+                        ? 120
+                        : 120,
+          x: 28 + ((movableTextOrMediaIndex % 2) * 14),
+          y: 120 + (movableTextOrMediaIndex * 36),
         }
       : undefined,
   }
@@ -503,7 +519,22 @@ function buildBlocksFromState(reportId: string, charts: ReportLayoutItem[]): Rep
     rebuilt.push(createChartBlock(chart, rebuilt.filter((item) => item.kind === 'chart').length))
   }
 
-  return normalizeOrder(rebuilt)
+  const withFreeMoveEnabled = rebuilt.map((block) => {
+    if (!isMovableBlock(block)) {
+      return block
+    }
+
+    return {
+      ...block,
+      layout: {
+        ...defaultBlockLayout(),
+        ...(block.layout ?? {}),
+        enabled: true,
+      },
+    }
+  })
+
+  return normalizeOrder(withFreeMoveEnabled)
 }
 
 async function resolveDataset(dataset: unknown): Promise<unknown> {
@@ -812,18 +843,13 @@ async function handleReportDrop(event: DragEvent): Promise<void> {
   await addChart(chartId)
 }
 
-function addContentBlock(): void {
+function addContentBlock(kind: 'title' | 'subtitle' | 'paragraph' | 'image' | 'video'): void {
   if (!selectedReportId.value) {
     setMessage('Select a report first.')
     return
   }
 
-  if (blockToInsert.value === 'chart') {
-    setMessage('Use Project Charts to add charts.')
-    return
-  }
-
-  blocks.value = normalizeOrder([...blocks.value, createBlock(blockToInsert.value)])
+  blocks.value = normalizeOrder([...blocks.value, createBlock(kind)])
 }
 
 function addPageBlock(): void {
@@ -929,18 +955,6 @@ function isMovableBlock(block: ReportBlockItem): boolean {
   return block.kind === 'chart' || block.kind === 'image' || block.kind === 'video' || isTextBlock(block.kind)
 }
 
-function selectedBlockLabel(block: ReportBlockItem): string {
-  if (block.kind === 'chart') {
-    return chartNameForBlock(block)
-  }
-
-  if (isTextBlock(block.kind)) {
-    return (block.text || block.kind).slice(0, 40)
-  }
-
-  return block.kind
-}
-
 function setBlockFreeMove(blockId: string, enabled: boolean): void {
   const block = blocks.value.find((item) => item.id === blockId)
   if (!block || !isMovableBlock(block)) {
@@ -1003,15 +1017,6 @@ function startDirectMove(block: ReportBlockItem, event: MouseEvent): void {
 
   activateTransform(block.id)
   startMove(block.id, event)
-}
-
-function updateSelectedBlockFreeMove(enabled: boolean): void {
-  const block = selectedMovableBlock.value
-  if (!block) {
-    return
-  }
-
-  setBlockFreeMove(block.id, enabled)
 }
 
 function updateSelectedChartFreeMove(enabled: boolean): void {
@@ -1856,71 +1861,27 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="!previewMode" class="global-chart-controls">
-      <header class="global-chart-controls__header">
-        <h3>Block Position Controls</h3>
-        <p class="hint">Select a chart or text block, then enable free move/resize.</p>
-      </header>
-
-      <div class="global-chart-controls__grid">
-        <label class="global-chart-controls__field">
-          <span>Selected Block</span>
-          <input
-            class="text-input"
-            type="text"
-            :value="selectedMovableBlock ? `${selectedMovableBlock.kind}: ${selectedBlockLabel(selectedMovableBlock)}` : 'No block selected'"
-            readonly
-          />
-        </label>
-
-        <div class="chart-controls chart-controls--global">
-          <label>
-            <input
-              :checked="selectedMovableBlock?.layout?.enabled ?? false"
-              :disabled="!selectedMovableBlock"
-              type="checkbox"
-              @change="updateSelectedBlockFreeMove(($event.target as HTMLInputElement).checked)"
-            />
-            Enable Free Move / Resize
-          </label>
-          <p class="hint">When enabled, drag the block directly or use the Move button and corner handle.</p>
-        </div>
-      </div>
-    </section>
-
     <section class="content-grid" :class="{ 'content-grid--preview': previewMode }">
       <aside v-if="!previewMode" class="chart-picker">
         <h2>Project Charts</h2>
-        <p class="hint">Search, filter, and add charts to your report.</p>
-
-        <input
-          v-model="chartSearch"
-          class="search-input"
-          type="text"
-          placeholder="Search charts..."
-        />
-
-        <select v-model="chartTypeFilter" class="type-filter">
-          <option v-for="item in chartTypeOptions" :key="item" :value="item">
-            {{ item === 'all' ? 'All Types' : item }}
-          </option>
-        </select>
 
         <div class="insert-controls">
-          <label for="block-type">Insert Block</label>
-          <div class="insert-row">
-            <select id="block-type" v-model="blockToInsert">
-              <option value="section">Section Header</option>
-              <option value="title">Title</option>
-              <option value="subtitle">Subtitle</option>
-              <option value="paragraph">Paragraph</option>
-              <option value="notes">Notes</option>
-              <option value="source">Source</option>
-              <option value="image">Image</option>
-              <option value="video">Video</option>
-            </select>
-            <button class="primary-btn" :disabled="!selectedReportId" @click="addContentBlock">Insert</button>
+          <label>Insert Block</label>
+          <div class="insert-icon-row" role="group" aria-label="Insert block types">
+            <button
+              v-for="item in quickInsertBlocks"
+              :key="item.kind"
+              class="insert-icon-btn"
+              type="button"
+              :title="item.label"
+              :aria-label="`Insert ${item.label}`"
+              :disabled="!selectedReportId"
+              @click="addContentBlock(item.kind)"
+            >
+              <span class="insert-icon-btn__glyph">{{ item.icon }}</span>
+            </button>
           </div>
+
           <label for="page-after">Add Page After</label>
           <select id="page-after" v-model.number="addPageAfterIndex" class="type-filter">
             <option v-for="(_, pageIndex) in reportPages" :key="`page-after-${pageIndex}`" :value="pageIndex">
@@ -2047,8 +2008,15 @@ onBeforeUnmount(() => {
               <template v-else-if="block.kind === 'paragraph' || block.kind === 'notes' || block.kind === 'source'">
                 <textarea
                   v-if="!previewMode"
-                  class="textarea-input"
-                  :rows="block.kind === 'paragraph' ? 5 : 3"
+                  :class="[
+                    'textarea-input',
+                    block.kind === 'paragraph'
+                      ? 'textarea-input--paragraph'
+                      : block.kind === 'notes'
+                        ? 'textarea-input--notes'
+                        : 'textarea-input--source'
+                  ]"
+                  :rows="block.kind === 'paragraph' ? 7 : block.kind === 'notes' ? 5 : 3"
                   :value="block.text || ''"
                   :placeholder="block.kind === 'paragraph' ? 'Paragraph text' : block.kind === 'notes' ? 'Notes' : 'Source'"
                   @input="updateBlockText(block.id, ($event.target as HTMLTextAreaElement).value)"
@@ -2348,6 +2316,43 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.insert-icon-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.insert-icon-btn {
+  width: 46px;
+  height: 40px;
+  border: 1px solid #c7d3e3;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #1f2937;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.insert-icon-btn:hover:not(:disabled) {
+  border-color: #0f4fa8;
+  box-shadow: 0 6px 14px rgba(15, 79, 168, 0.16);
+  transform: translateY(-1px);
+}
+
+.insert-icon-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.insert-icon-btn__glyph {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
 .chart-item {
   border: none;
   border-radius: 8px;
@@ -2596,6 +2601,24 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.title-input {
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 800;
+}
+
+.subtitle-input {
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.section-input {
+  font-size: 24px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
 .text-title {
   margin: 0;
   font-size: var(--rb-title-font, 32px);
@@ -2613,6 +2636,21 @@ onBeforeUnmount(() => {
   font-size: var(--rb-base-font, 14px);
   line-height: 1.6;
   resize: vertical;
+}
+
+.textarea-input--paragraph {
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.textarea-input--notes {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.textarea-input--source {
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .text-paragraph {

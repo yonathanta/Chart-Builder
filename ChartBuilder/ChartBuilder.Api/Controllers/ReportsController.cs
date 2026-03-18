@@ -279,7 +279,14 @@ public sealed class ReportsController : ControllerBase
             return Conflict(new { message = "Chart is already part of this report." });
         }
 
-        var link = new ReportChart(request.ReportId, request.ChartId, request.OrderIndex);
+        var link = new ReportChart(
+            request.ReportId,
+            request.ChartId,
+            request.OrderIndex,
+            positionX: 0,
+            positionY: 0,
+            width: 12,
+            height: 8);
         await _dbContext.ReportCharts.AddAsync(link, cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
