@@ -37,10 +37,10 @@ export type AddReportChartPayload = {
   reportId: string;
   chartId: string;
   orderIndex: number;
-  positionX: number;
-  positionY: number;
-  width: number;
-  height: number;
+  positionX?: number;
+  positionY?: number;
+  width?: number;
+  height?: number;
 };
 
 export type ReorderReportChartPayload = {

@@ -37,10 +37,14 @@ const emit = defineEmits<{
 
 const svgRef = ref<SVGSVGElement | null>(null);
 const frameRef = ref<HTMLDivElement | null>(null);
+const frameWrapperRef = ref<HTMLDivElement | null>(null);
 const status = ref<string>("");
 const error = ref<string | null>(null);
 let lineChart: LineChartInstance | null = null;
 let areaChart: AreaChartInstance | null = null;
+let resizeObserver: ResizeObserver | null = null;
+let resizeRaf = 0;
+const renderSize = ref<{ width: number; height: number }>({ width: 720, height: 420 });
 
 const rows = ref<Record<string, unknown>[]>([]);
 const selectedRow = ref<number | null>(null);
@@ -58,6 +62,50 @@ const columns = computed(() => {
   const first = rows.value[0];
   return first ? Object.keys(first) : [];
 });
+
+const frameWrapperStyle = computed(() => {
+  const baseWidth = props.spec.layout?.width ?? 720;
+  const baseHeight = props.spec.layout?.height ?? 420;
+
+  return {
+    aspectRatio: `${baseWidth} / ${baseHeight}`,
+  };
+});
+
+function updateRenderSize(): void {
+  const baseWidth = props.spec.layout?.width ?? 720;
+  const baseHeight = props.spec.layout?.height ?? 420;
+  const target = frameRef.value ?? frameWrapperRef.value;
+
+  if (!target) {
+    renderSize.value = { width: baseWidth, height: baseHeight };
+    return;
+  }
+
+  const width = Math.max(280, Math.round(target.clientWidth || baseWidth));
+  const ratio = baseHeight / baseWidth;
+  const fallbackHeight = Math.round(width * ratio);
+  const measuredHeight = Math.round(target.clientHeight || fallbackHeight);
+  const height = Math.max(220, measuredHeight);
+
+  if (width === renderSize.value.width && height === renderSize.value.height) {
+    return;
+  }
+
+  renderSize.value = { width, height };
+}
+
+function scheduleResponsiveRender(): void {
+  if (resizeRaf) {
+    return;
+  }
+
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = 0;
+    updateRenderSize();
+    renderWithCurrentRows();
+  });
+}
 
 watch(
   () => props.spec.encoding,
@@ -207,8 +255,9 @@ async function loadAndRender() {
     rows.value = fetchedRows;
     emit("update:fields", columns.value);
 
-    const width = props.spec.layout?.width ?? 720;
-    const height = props.spec.layout?.height ?? 420;
+    updateRenderSize();
+    const width = renderSize.value.width;
+    const height = renderSize.value.height;
 
     // Always size the built-in SVG; hidden for non-bar types
     const svg = svgRef.value;
@@ -391,7 +440,16 @@ async function loadAndRender() {
 
 onMounted(() => {
   // Initial fetch on mount
+  updateRenderSize();
   loadAndRender();
+
+  if (typeof ResizeObserver !== 'undefined' && frameWrapperRef.value) {
+    resizeObserver = new ResizeObserver(() => {
+      scheduleResponsiveRender();
+    });
+
+    resizeObserver.observe(frameWrapperRef.value);
+  }
 });
 
 // Spec changes (type/layout/encoding) should only re-render with current rows
@@ -463,6 +521,12 @@ function selectCell(rowIndex: number, column: string) {
 
 function renderWithCurrentRows() {
   if (!svgRef.value) return;
+  updateRenderSize();
+  const width = renderSize.value.width;
+  const height = renderSize.value.height;
+  svgRef.value.setAttribute('width', String(width));
+  svgRef.value.setAttribute('height', String(height));
+
   if (props.spec.type === "bar") {
     const seriesField = props.spec.encoding.series?.field;
     let renderRows = filteredRows.value;
@@ -480,8 +544,8 @@ function renderWithCurrentRows() {
       xType: props.lineConfig?.xType ?? 'time',
       xFormat: props.lineConfig?.xFormat ?? '%Y-%m-%d',
       yType: 'linear',
-      width: props.spec.layout?.width ?? 720,
-      height: props.spec.layout?.height ?? 420,
+      width,
+      height,
       margin: props.lineConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
       lineColor: props.lineConfig?.lineColor ?? '#2563eb',
       lineWidth: props.lineConfig?.lineWidth ?? 2,
@@ -517,8 +581,8 @@ function renderWithCurrentRows() {
       xType: props.areaConfig?.xType ?? 'time',
       xParseFormat: props.areaConfig?.xParseFormat ?? '%Y-%m-%d',
       yType: 'linear',
-      width: props.spec.layout?.width ?? 720,
-      height: props.spec.layout?.height ?? 420,
+      width,
+      height,
       margin: props.areaConfig?.margin ?? { top: 24, right: 24, bottom: 40, left: 52 },
       responsive: true,
       backgroundColor: props.spec.style?.background || 'transparent',
@@ -601,6 +665,8 @@ defineExpose({
 onBeforeUnmount(() => {
   if (lineChart) lineChart.destroy();
   if (areaChart) areaChart.destroy();
+  if (resizeObserver) resizeObserver.disconnect();
+  if (resizeRaf) cancelAnimationFrame(resizeRaf);
 });
 </script>
 
@@ -636,10 +702,8 @@ onBeforeUnmount(() => {
 
       <div 
         class="preview__frame-wrapper"
-        :style="{ 
-          width: (spec.layout?.width || 720) + 'px', 
-          height: (spec.layout?.height || 420) + 'px' 
-        }"
+        ref="frameWrapperRef"
+        :style="frameWrapperStyle"
       >
         <div 
           class="preview__frame" 
@@ -648,8 +712,8 @@ onBeforeUnmount(() => {
         >
           <svg 
             ref="svgRef" 
-            :width="spec.layout?.width ?? 720" 
-            :height="spec.layout?.height ?? 420"
+            :width="renderSize.width" 
+            :height="renderSize.height"
           ></svg>
         </div>
       </div>
@@ -852,7 +916,8 @@ onBeforeUnmount(() => {
 }
 
 .preview__frame-wrapper {
-  flex: 0 0 auto;
+  width: min(100%, 980px);
+  min-height: 280px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #ffffff;

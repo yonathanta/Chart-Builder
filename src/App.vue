@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterView, RouterLink } from 'vue-router'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import projectService, { type ProjectRecord } from './services/projectService'
 import { useProjectStore } from './stores/projectStore'
+import { useResponsiveStore } from './stores/responsiveStore'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const projectStore = useProjectStore()
+const responsiveStore = useResponsiveStore()
 
 const projects = ref<ProjectRecord[]>([])
 const selectedProjectId = ref('')
@@ -101,10 +103,18 @@ function handleLogout(): void {
   router.push('/login')
 }
 
+onMounted(() => {
+  responsiveStore.initialize()
+})
+
+onBeforeUnmount(() => {
+  responsiveStore.teardown()
+})
+
 </script>
 
 <template>
-  <div class="app-container">
+  <div class="app-container" :class="[`app--${responsiveStore.deviceType}`]">
     <nav v-if="showNav" class="main-nav">
       <div class="nav-content">
         <div class="nav-brand">ECAStats Builder</div>
@@ -268,5 +278,53 @@ body {
   right: 0;
   height: 2px;
   background: #2563eb;
+}
+
+@media (max-width: 1024px) {
+  .main-nav {
+    height: auto;
+    min-height: var(--nav-height);
+    padding: 8px 14px;
+  }
+
+  .nav-content {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .nav-right {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: space-between;
+  }
+
+  .nav-links {
+    order: 2;
+    width: 100%;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 767px) {
+  .project-picker label,
+  .user-email {
+    display: none;
+  }
+
+  .project-picker select {
+    min-width: 120px;
+  }
+
+  .nav-brand {
+    font-size: 1rem;
+  }
+
+  .logout-btn {
+    height: 30px;
+    padding: 0 10px;
+  }
 }
 </style>

@@ -13,10 +13,6 @@ export type DashboardChartLayout = {
   id: string
   chartId: string
   chartName: string
-  datasetId: string
-  chartType: string
-  configJson: string
-  styleJson: string
   positionX: number
   positionY: number
   width: number

@@ -4,8 +4,6 @@ using ChartBuilder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using PuppeteerSharp;
-using PuppeteerSharp.Media;
 
 namespace ChartBuilder.Api.Controllers;
 
@@ -125,11 +123,7 @@ public sealed class ReportsController : ControllerBase
                         link.Chart != null ? link.Chart.ChartType : string.Empty,
                         link.Chart != null ? link.Chart.ConfigJson : string.Empty,
                         link.Chart != null ? link.Chart.StyleJson : string.Empty,
-                        link.OrderIndex,
-                        link.PositionX,
-                        link.PositionY,
-                        link.Width,
-                        link.Height))
+                        link.OrderIndex))
                     .ToList()))
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -285,14 +279,7 @@ public sealed class ReportsController : ControllerBase
             return Conflict(new { message = "Chart is already part of this report." });
         }
 
-        var link = new ReportChart(
-            request.ReportId,
-            request.ChartId,
-            request.OrderIndex,
-            request.PositionX,
-            request.PositionY,
-            request.Width,
-            request.Height);
+        var link = new ReportChart(request.ReportId, request.ChartId, request.OrderIndex);
         await _dbContext.ReportCharts.AddAsync(link, cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -304,11 +291,7 @@ public sealed class ReportsController : ControllerBase
             chart.ChartType,
             chart.ConfigJson,
             chart.StyleJson,
-            link.OrderIndex,
-            link.PositionX,
-            link.PositionY,
-            link.Width,
-            link.Height));
+            link.OrderIndex));
     }
 
     [HttpPut("reorder-chart")]
@@ -359,58 +342,7 @@ public sealed class ReportsController : ControllerBase
             reportChart.Chart?.ChartType ?? string.Empty,
             reportChart.Chart?.ConfigJson ?? string.Empty,
             reportChart.Chart?.StyleJson ?? string.Empty,
-            reportChart.OrderIndex,
-            reportChart.PositionX,
-            reportChart.PositionY,
-            reportChart.Width,
-            reportChart.Height));
-    }
-
-    [HttpPut("update-chart-layout")]
-    public async Task<ActionResult<ReportChartDto>> UpdateChartLayout([FromBody] UpdateReportChartLayoutDto request, CancellationToken cancellationToken)
-    {
-        if (!TryGetUserId(out var userId))
-        {
-            return Unauthorized();
-        }
-
-        if (request.Id == Guid.Empty)
-        {
-            return BadRequest(new { message = "Id is required." });
-        }
-
-        var reportChart = await _dbContext.ReportCharts
-            .Where(candidate => candidate.Id == request.Id && candidate.Report != null && candidate.Report.Project != null && candidate.Report.Project.UserId == userId)
-            .Include(candidate => candidate.Chart)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (reportChart is null)
-        {
-            var exists = await _dbContext.ReportCharts.AnyAsync(candidate => candidate.Id == request.Id, cancellationToken);
-            if (exists)
-            {
-                return Unauthorized();
-            }
-
-            return NotFound();
-        }
-
-        reportChart.UpdateLayout(request.PositionX, request.PositionY, request.Width, request.Height);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        return Ok(new ReportChartDto(
-            reportChart.Id,
-            reportChart.ChartId,
-            reportChart.Chart?.Name ?? string.Empty,
-            reportChart.Chart?.DatasetId ?? Guid.Empty,
-            reportChart.Chart?.ChartType ?? string.Empty,
-            reportChart.Chart?.ConfigJson ?? string.Empty,
-            reportChart.Chart?.StyleJson ?? string.Empty,
-            reportChart.OrderIndex,
-            reportChart.PositionX,
-            reportChart.PositionY,
-            reportChart.Width,
-            reportChart.Height));
+            reportChart.OrderIndex));
     }
 
     [HttpDelete("remove-chart/{id:guid}")]
@@ -442,175 +374,6 @@ public sealed class ReportsController : ControllerBase
         return Ok();
     }
 
-    [HttpGet("{reportId:guid}/export-pdf")]
-    public async Task<IActionResult> ExportPdf(Guid reportId, CancellationToken cancellationToken)
-    {
-        if (!TryGetUserId(out var userId))
-        {
-            return Unauthorized();
-        }
-
-        var report = await _dbContext.Reports
-            .Include(d => d.Project)
-            .Include(d => d.ReportCharts)
-                .ThenInclude(lc => lc.Chart)
-            .FirstOrDefaultAsync(candidate => candidate.Id == reportId, cancellationToken);
-
-        if (report is null)
-        {
-            return NotFound();
-        }
-
-        if (report.Project?.UserId != userId)
-        {
-            return Unauthorized();
-        }
-
-        // Fetch datasets for all charts
-        var datasetIds = report.ReportCharts
-            .Where(lc => lc.Chart != null)
-            .Select(lc => lc.Chart!.DatasetId)
-            .Distinct()
-            .ToList();
-
-        var datasets = await _dbContext.Datasets
-            .Where(ds => datasetIds.Contains(ds.Id))
-            .ToDictionaryAsync(ds => ds.Id, ds => ds.DataJson, cancellationToken);
-
-        var chartLayouts = report.ReportCharts
-            .OrderBy(lc => lc.OrderIndex)
-            .Select(lc => new
-            {
-                lc.Id,
-                lc.OrderIndex,
-                lc.PositionX,
-                lc.PositionY,
-                lc.Width,
-                lc.Height,
-                Chart = lc.Chart != null ? new
-                {
-                    lc.Chart.Id,
-                    lc.Chart.Name,
-                    lc.Chart.ChartType,
-                    lc.Chart.ConfigJson,
-                    lc.Chart.StyleJson,
-                    DataJson = datasets.ContainsKey(lc.Chart.DatasetId) ? datasets[lc.Chart.DatasetId] : "[]"
-                } : null
-            })
-            .ToList();
-
-        var html = GenerateReportHtml(report.Name, chartLayouts);
-
-        // Convert to PDF using Puppeteer
-        var browserFetcher = new BrowserFetcher();
-        await browserFetcher.DownloadAsync();
-        using var browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
-        using var page = await browser.NewPageAsync();
-        
-        await page.SetContentAsync(html);
-        // Wait for charts to render
-        await Task.Delay(2000, cancellationToken); 
-        
-        var pdfOptions = new PdfOptions
-        {
-            Format = PaperFormat.A4,
-            PrintBackground = true,
-            MarginOptions = new MarginOptions
-            {
-                Top = "20mm",
-                Bottom = "20mm",
-                Left = "20mm",
-                Right = "20mm"
-            }
-        };
-
-        var pdfStream = await page.PdfStreamAsync(pdfOptions);
-        return File(pdfStream, "application/pdf", $"{report.Name}.pdf");
-    }
-
-    private string GenerateReportHtml(string title, object layouts)
-    {
-        var layoutsJson = System.Text.Json.JsonSerializer.Serialize(layouts);
-        
-        string rendererJs = "// Chart Renderer not found";
-        try 
-        {
-            var path = Path.Combine(Directory.GetCurrentDirectory(), "..", "chart-platform", "public", "chart-renderer.js");
-            if (System.IO.File.Exists(path))
-            {
-                rendererJs = System.IO.File.ReadAllText(path);
-            }
-        }
-        catch {}
-
-        return $@"<!DOCTYPE html>
-<html lang=""en"">
-<head>
-    <meta charset=""UTF-8"">
-    <title>{title}</title>
-    <script src=""https://d3js.org/d3.v7.min.js""></script>
-    <style>
-        body {{ font-family: sans-serif; padding: 0; margin: 0; background: white; }}
-        .header {{ text-align: center; padding: 20px; border-bottom: 2px solid #eee; margin-bottom: 30px; }}
-        .report-content {{ max-width: 800px; margin: 0 auto; padding: 20px; }}
-        .chart-section {{ 
-            margin-bottom: 50px; 
-            page-break-after: always;
-            border: 1px solid #ddd;
-            padding: 15px;
-            border-radius: 8px;
-        }}
-        .chart-title {{ font-size: 1.25rem; font-weight: bold; margin-bottom: 15px; color: #333; }}
-        .canvas-container {{ height: 400px; position: relative; }}
-        .chart-svg {{ width: 100%; height: 100%; }}
-    </style>
-</head>
-<body>
-    <div class=""header"">
-        <h1>{title}</h1>
-        <p>Generated on: {DateTime.Now:MMMM dd, yyyy}</p>
-    </div>
-    <div class=""report-content"" id=""report""></div>
-
-    <script>
-        {rendererJs}
-        
-        const layouts = {layoutsJson};
-        const report = document.getElementById('report');
-
-        layouts.forEach(layout => {{
-            if (!layout.Chart) return;
-            
-            const section = document.createElement('div');
-            section.className = 'chart-section';
-            
-            const title = document.createElement('div');
-            title.className = 'chart-title';
-            title.innerText = layout.Chart.Name;
-            section.appendChild(title);
-
-            const canvasDiv = document.createElement('div');
-            canvasDiv.className = 'canvas-container';
-            const svg = document.createElementNS(""http://www.w3.org/2000/svg"", ""svg"");
-            svg.className = 'chart-svg';
-            canvasDiv.appendChild(svg);
-            section.appendChild(canvasDiv);
-            
-            report.appendChild(section);
-
-            const config = JSON.parse(layout.Chart.ConfigJson || '{{}}');
-            // Disable animations for PDF export
-            config.animationEnabled = false; 
-            const data = JSON.parse(layout.Chart.DataJson || '[]');
-
-            const rect = canvasDiv.getBoundingClientRect();
-            window.ChartRenderer.render(svg, data, config, {{ width: 800, height: 400 }});
-        }});
-    </script>
-</body>
-</html>";
-    }
-
     private static ReportDto ToReportDto(Report report)
         => new(
             report.Id,
@@ -624,23 +387,9 @@ public sealed class ReportsController : ControllerBase
 
     public sealed record UpdateReportDto(string Name);
 
-    public sealed record AddReportChartDto(
-        Guid ReportId,
-        Guid ChartId,
-        int OrderIndex,
-        int PositionX,
-        int PositionY,
-        int Width,
-        int Height);
+    public sealed record AddReportChartDto(Guid ReportId, Guid ChartId, int OrderIndex);
 
     public sealed record ReorderReportChartDto(Guid Id, int OrderIndex);
-
-    public sealed record UpdateReportChartLayoutDto(
-        Guid Id,
-        int PositionX,
-        int PositionY,
-        int Width,
-        int Height);
 
     public sealed record ReportDto(
         Guid Id,
@@ -667,11 +416,7 @@ public sealed class ReportsController : ControllerBase
         string ChartType,
         string ConfigJson,
         string StyleJson,
-        int OrderIndex,
-        int PositionX,
-        int PositionY,
-        int Width,
-        int Height);
+        int OrderIndex);
 
     private bool TryGetUserId(out Guid userId)
     {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import ChartRenderer from '../ChartRenderer.vue'
 
 export type GridChartItem = {
@@ -21,6 +21,7 @@ export type GridChartItem = {
 const props = defineProps<{
   items: GridChartItem[]
   columns?: number
+  deviceType?: 'mobile' | 'tablet' | 'desktop'
 }>()
 
 const emit = defineEmits<{
@@ -31,10 +32,46 @@ const emit = defineEmits<{
 
 const draggingId = ref<string | null>(null)
 
+const isMobile = computed(() => props.deviceType === 'mobile')
+const isTablet = computed(() => props.deviceType === 'tablet')
+const isDesktop = computed(() => !isMobile.value && !isTablet.value)
+
+const displayColumns = computed(() => {
+  if (isMobile.value) {
+    return 1
+  }
+
+  if (isTablet.value) {
+    return 2
+  }
+
+  return props.columns ?? 12
+})
+
+const orderedItems = computed(() =>
+  [...props.items].sort((left, right) => {
+    if (left.y !== right.y) {
+      return left.y - right.y
+    }
+
+    if (left.x !== right.x) {
+      return left.x - right.x
+    }
+
+    return left.chartName.localeCompare(right.chartName)
+  })
+)
+
+const renderItems = computed(() => (isDesktop.value ? props.items : orderedItems.value))
+
 const rowHeightPx = 120
 const gutterPx = 12
 
 function startDrag(itemId: string, event: DragEvent): void {
+  if (!isDesktop.value) {
+    return
+  }
+
   draggingId.value = itemId
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
@@ -45,12 +82,16 @@ function startDrag(itemId: string, event: DragEvent): void {
 function onDrop(event: DragEvent): void {
   event.preventDefault()
 
+  if (!isDesktop.value) {
+    return
+  }
+
   const target = event.currentTarget as HTMLElement | null
   if (!target) {
     return
   }
 
-  const cols = props.columns ?? 12
+  const cols = displayColumns.value
   const rect = target.getBoundingClientRect()
   const colWidth = (rect.width - (cols - 1) * gutterPx) / cols
 
@@ -85,26 +126,41 @@ function onDrop(event: DragEvent): void {
 }
 
 function resize(item: GridChartItem, dw: number, dh: number): void {
-  const cols = props.columns ?? 12
+  if (!isDesktop.value) {
+    return
+  }
+
+  const cols = displayColumns.value
   const w = Math.max(1, Math.min(cols - item.x, item.w + dw))
   const h = Math.max(1, item.h + dh)
   emit('resize', { id: item.layoutId, w, h })
 }
+
+function tileStyle(item: GridChartItem): Record<string, string> {
+  if (!isDesktop.value) {
+    return {}
+  }
+
+  return {
+    gridColumn: `${item.x + 1} / span ${item.w}`,
+    gridRow: `${item.y + 1} / span ${item.h}`,
+  }
+}
 </script>
 
 <template>
-  <section class="grid" @dragover.prevent @drop="onDrop">
+  <section class="grid" :class="[`grid--${deviceType ?? 'desktop'}`]" @dragover.prevent @drop="onDrop">
     <div
-      v-for="item in items"
+      v-for="item in renderItems"
       :key="item.layoutId"
       class="tile"
-      :style="{ gridColumn: `${item.x + 1} / span ${item.w}`, gridRow: `${item.y + 1} / span ${item.h}` }"
-      draggable="true"
+      :style="tileStyle(item)"
+      :draggable="isDesktop"
       @dragstart="startDrag(item.layoutId, $event)"
     >
       <header class="tile-head">
         <span class="title">{{ item.chartName }}</span>
-        <div class="actions">
+        <div v-if="isDesktop" class="actions">
           <button @click.stop="resize(item, -1, 0)">W-</button>
           <button @click.stop="resize(item, 1, 0)">W+</button>
           <button @click.stop="resize(item, 0, -1)">H-</button>
@@ -133,6 +189,16 @@ function resize(item: GridChartItem, dw: number, dh: number): void {
   padding: 12px;
 }
 
+.grid--tablet {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(300px, auto);
+}
+
+.grid--mobile {
+  grid-template-columns: 1fr;
+  grid-auto-rows: minmax(280px, auto);
+}
+
 .tile {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -140,6 +206,11 @@ function resize(item: GridChartItem, dw: number, dh: number): void {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.grid--tablet .tile,
+.grid--mobile .tile {
+  min-height: 280px;
 }
 
 .tile-head {

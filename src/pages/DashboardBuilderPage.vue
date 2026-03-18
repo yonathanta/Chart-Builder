@@ -8,6 +8,7 @@ import projectService, { type ProjectRecord } from '../services/projectService'
 import chartService from '../services/chartService'
 import datasetService from '../services/datasetService'
 import { useProjectStore } from '../stores/projectStore'
+import { useResponsiveStore } from '../stores/responsiveStore'
 
 type ApiChart = {
   id?: string
@@ -43,6 +44,7 @@ type ProjectChartOption = {
 }
 
 const projectStore = useProjectStore()
+const responsiveStore = useResponsiveStore()
 
 const projects = ref<ProjectRecord[]>([])
 const dashboards = ref<DashboardRecord[]>([])
@@ -55,6 +57,10 @@ const initialSnapshot = ref<Map<string, string>>(new Map())
 const loading = ref(false)
 const saving = ref(false)
 const message = ref('')
+const showChartPicker = ref(false)
+
+const isMobile = computed(() => responsiveStore.deviceType === 'mobile')
+const isTablet = computed(() => responsiveStore.deviceType === 'tablet')
 
 const hasPendingLayoutChanges = computed(() => {
   return gridItems.value.some((item) => {
@@ -430,6 +436,8 @@ watch(selectedDashboardId, async (dashboardId) => {
 })
 
 onMounted(async () => {
+  showChartPicker.value = !isMobile.value
+
   await loadProjects()
   if (selectedProjectId.value) {
     await Promise.all([loadDashboards(selectedProjectId.value), loadCharts(selectedProjectId.value)])
@@ -438,10 +446,23 @@ onMounted(async () => {
     await loadDashboardDetails(selectedDashboardId.value)
   }
 })
+
+watch(
+  () => responsiveStore.deviceType,
+  (deviceType) => {
+    if (deviceType === 'mobile') {
+      showChartPicker.value = false
+      return
+    }
+
+    showChartPicker.value = true
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
-  <main class="dashboard-builder-page">
+  <main class="dashboard-builder-page" :class="[`dashboard-builder-page--${responsiveStore.deviceType}`]">
     <header class="topbar">
       <DashboardSelectionBar
         :projects="projects"
@@ -455,6 +476,15 @@ onMounted(async () => {
 
       <button class="save-btn" :disabled="saving || !hasPendingLayoutChanges" @click="saveLayout">
         {{ saving ? 'Saving...' : 'Save Layout Changes' }}
+      </button>
+
+      <button
+        v-if="isMobile"
+        class="save-btn save-btn--secondary"
+        :disabled="loading"
+        @click="showChartPicker = !showChartPicker"
+      >
+        {{ showChartPicker ? 'Hide Charts' : 'Show Charts' }}
       </button>
     </header>
 
@@ -488,8 +518,27 @@ onMounted(async () => {
         <p v-if="availableCharts.length === 0" class="hint">No charts found for this project.</p>
       </aside>
 
+      <aside v-if="isMobile && showChartPicker" class="chart-picker chart-picker--mobile">
+        <h2>Project Charts</h2>
+        <p class="hint">Tap to add chart to dashboard.</p>
+
+        <button
+          v-for="chart in availableCharts"
+          :key="`mobile-${chart.id}`"
+          class="chart-item chart-card"
+          :disabled="saving || !selectedDashboardId"
+          @click="addChartToDashboard(chart.id)"
+        >
+          <div class="chart-card__head">
+            <span class="chart-card__name">{{ chart.name }}</span>
+            <small>{{ chart.chartType }}</small>
+          </div>
+        </button>
+      </aside>
+
       <DashboardLayoutGrid
         :items="gridItems"
+        :device-type="responsiveStore.deviceType"
         @move="handleMove"
         @resize="handleResize"
         @add-chart="addChartToDashboard($event.chartId, $event.x, $event.y)"
@@ -522,6 +571,12 @@ onMounted(async () => {
   color: white;
   padding: 0 14px;
   cursor: pointer;
+}
+
+.save-btn--secondary {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #334155;
 }
 
 .save-btn:disabled {
@@ -614,5 +669,38 @@ onMounted(async () => {
 
 .chart-item small {
   color: #64748b;
+}
+
+@media (max-width: 1024px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .chart-picker {
+    order: 2;
+  }
+}
+
+@media (max-width: 767px) {
+  .dashboard-builder-page {
+    padding: 10px;
+  }
+
+  .chart-picker {
+    display: none;
+  }
+
+  .chart-picker--mobile {
+    display: flex;
+  }
+
+  .chart-card__thumb {
+    height: 96px;
+  }
 }
 </style>

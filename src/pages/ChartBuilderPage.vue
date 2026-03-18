@@ -16,6 +16,7 @@ import StackedBarBuilderControls from "../components/StackedBarBuilderControls.v
 import PreviewPane from "../components/PreviewPane.vue";
 import { exportService, type ExportFormat } from "../export/exportService";
 import { useProjectStore } from "../stores/projectStore";
+import { useResponsiveStore } from "../stores/responsiveStore";
 import chartService from "../services/chartService";
 import projectService, { type ProjectRecord } from "../services/projectService";
 import datasetService, { type DatasetRecord } from "../services/datasetService";
@@ -175,6 +176,8 @@ const stackedBarConfig = ref<StackedBarConfig>({
 });
 
 const projectStore = useProjectStore();
+const responsiveStore = useResponsiveStore();
+const showSidebar = ref(true);
 const availableProjects = ref<ProjectRecord[]>([]);
 const availableDatasets = ref<DatasetRecord[]>([]);
 const selectedDatasetId = ref<string>("");
@@ -711,6 +714,14 @@ watch(
   }
 );
 
+watch(
+  () => responsiveStore.deviceType,
+  (deviceType) => {
+    showSidebar.value = deviceType !== 'mobile';
+  },
+  { immediate: true }
+);
+
 // chevron helper removed
 const selectedYears = ref<string[]>([]);
 const dataFields = ref<string[]>([]);
@@ -1032,10 +1043,14 @@ async function handleLoadProject(event: Event) {
 function triggerLoadProject() {
   projectInputRef.value?.click();
 }
+
+function toggleSidebar(): void {
+  showSidebar.value = !showSidebar.value;
+}
 </script>
 
 <template>
-  <main class="page">
+  <main class="page" :class="[`page--${responsiveStore.deviceType}`]">
     <header class="page__header">
       <div>
         <p class="eyebrow">Chart Builder</p>
@@ -1043,6 +1058,14 @@ function triggerLoadProject() {
         <p class="muted">Choose type of Graph, configure, preview and export.</p>
       </div>
       <div class="page__actions" style="display:flex;gap:8px;align-items:center">
+        <button
+          v-if="responsiveStore.deviceType === 'mobile'"
+          class="btn btn--outline"
+          @click="toggleSidebar"
+        >
+          {{ showSidebar ? 'Hide Controls' : 'Show Controls' }}
+        </button>
+
         <button class="btn btn--primary" :disabled="isSavingChart" @click="saveChart">
           {{ isSavingChart ? 'Saving...' : 'Save to Project' }}
         </button>
@@ -1109,7 +1132,7 @@ function triggerLoadProject() {
     </header>
 
     <section class="layout">
-      <div class="layout__side">
+      <div v-if="showSidebar" class="layout__side">
         <!-- Stepper Header -->
         <div class="stepper">
           <div v-for="step in steps" :key="step.id" class="step-item" :class="{ 'step-item--active': activeStep === step.id, 'step-item--completed': activeStep > step.id }">
@@ -1740,5 +1763,49 @@ function triggerLoadProject() {
 .btn--ghost:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+@media (max-width: 1024px) {
+  .page__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .layout__main {
+    position: static;
+  }
+
+  .preview__surface {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 767px) {
+  .page {
+    padding: 10px;
+  }
+
+  .page__actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .step-tabs {
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .step-tab {
+    min-width: 110px;
+  }
+
+  .step-body {
+    padding: 12px;
+  }
+
+  .selection-summary-card {
+    padding: 12px;
+  }
 }
 </style>
