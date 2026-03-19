@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from "vue";
+import { useRoute } from "vue-router";
 import { chartSpecSchema, type ChartSpec } from "../specs/chartSpec";
 import ChartTypeSelector from "../components/ChartTypeSelector.vue";
 import ChartOptionsPanel from "../components/ChartOptionsPanel.vue";
@@ -8,6 +9,7 @@ import PieBuilderControls from "../components/PieBuilderControls.vue";
 import MapBuilderControls from "../components/MapBuilderControls.vue";
 import DataBindingPanel from "../components/DataBindingPanel.vue";
 import DatasetUploadPanel from "../components/DatasetUploadPanel.vue";
+import ManualDatasetEditor from "../components/ManualDatasetEditor.vue";
 import ScatterBuilderControls, { type ScatterBuilderConfig } from "../components/ScatterBuilderControls.vue";
 import BubbleBuilderControls from "../components/BubbleBuilderControls.vue";
 import DotDonutBuilderControls from "../components/DotDonutBuilderControls.vue";
@@ -177,6 +179,7 @@ const stackedBarConfig = ref<StackedBarConfig>({
 
 const projectStore = useProjectStore();
 const responsiveStore = useResponsiveStore();
+const route = useRoute();
 const showSidebar = ref(true);
 const availableProjects = ref<ProjectRecord[]>([]);
 const availableDatasets = ref<DatasetRecord[]>([]);
@@ -184,6 +187,7 @@ const selectedDatasetId = ref<string>("");
 const isLoadingDatasets = ref(false);
 const selectedDatasetName = ref<string>("");
 const showDatasetUploadPanel = ref(false);
+const showManualDatasetEditor = ref(false);
 const newProjectName = ref("");
 const isSavingChart = ref(false);
 const saveSuccessMessage = ref<string | null>(null);
@@ -192,6 +196,87 @@ const datasetBlobUrl = ref<string | null>(null);
 const currentProjectId = computed(() => projectStore.currentProject?.id ?? "");
 const GLOBAL_SELECTED_DATASET_KEY = "selectedDatasetId";
 const DATASET_SYNC_SIGNAL_KEY = "chartBuilder:lastDatasetUpdate";
+const routeAutoLoadApplied = ref(false);
+const incomingDatasetLoading = ref(false);
+
+function queryValue(input: unknown): string {
+  if (Array.isArray(input)) {
+    return typeof input[0] === 'string' ? input[0] : '';
+  }
+
+  return typeof input === 'string' ? input : '';
+}
+
+function isSupportedChartType(type: string): type is ChartSpec['type'] {
+  return [
+    'bar',
+    'line',
+    'area',
+    'stackedArea',
+    'stackedBar',
+    'pie',
+    'scatter',
+    'bubble',
+    'map',
+    'dotDonut',
+    'orbitDonut',
+  ].includes(type);
+}
+
+async function applyIncomingDatasetFromRoute(): Promise<void> {
+  if (routeAutoLoadApplied.value) {
+    return;
+  }
+
+  const datasetId = queryValue(route.query.datasetId);
+  if (!datasetId) {
+    routeAutoLoadApplied.value = true;
+    return;
+  }
+
+  incomingDatasetLoading.value = true;
+  saveErrorMessage.value = null;
+  saveSuccessMessage.value = "Loading dataset into chart builder...";
+
+  try {
+    const incomingProjectId = queryValue(route.query.projectId);
+    if (incomingProjectId && incomingProjectId !== currentProjectId.value) {
+      const targetProject = availableProjects.value.find((project) => project.id === incomingProjectId);
+      if (targetProject) {
+        projectStore.setCurrentProject({ id: targetProject.id, name: targetProject.name });
+        await loadDatasetsForProject(targetProject.id);
+      }
+    }
+
+    await selectDatasetById(datasetId);
+
+    const incomingType = queryValue(route.query.chartType);
+    if (incomingType && isSupportedChartType(incomingType)) {
+      updateType(incomingType);
+    }
+
+    const xField = queryValue(route.query.xField);
+    const yField = queryValue(route.query.yField);
+    const seriesField = queryValue(route.query.seriesField);
+
+    if (xField && yField) {
+      updateEncoding({
+        category: xField,
+        value: yField,
+        series: seriesField || undefined,
+      });
+    }
+
+    activeStep.value = 3;
+    saveSuccessMessage.value = "Dataset saved and loaded into chart builder.";
+  } catch (error) {
+    saveSuccessMessage.value = null;
+    saveErrorMessage.value = getApiErrorMessage(error, "Failed to load incoming dataset.");
+  } finally {
+    incomingDatasetLoading.value = false;
+    routeAutoLoadApplied.value = true;
+  }
+}
 
 function getDatasetStorageKey(projectId: string): string {
   return `chartBuilder:selectedDataset:${projectId}`;
@@ -314,7 +399,11 @@ function toRowArray(value: unknown): Record<string, unknown>[] {
   }
 
   if (typeof value === "object" && value !== null) {
-    const maybeWrappedData = (value as { data?: unknown }).data;
+    const maybeWrappedData = (value as { data?: unknown; rows?: unknown }).data;
+    const maybeRows = (value as { data?: unknown; rows?: unknown }).rows;
+    if (Array.isArray(maybeRows)) {
+      return maybeRows.filter((item) => typeof item === "object" && item !== null) as Record<string, unknown>[];
+    }
     if (Array.isArray(maybeWrappedData)) {
       return maybeWrappedData.filter((item) => typeof item === "object" && item !== null) as Record<string, unknown>[];
     }
@@ -484,6 +573,16 @@ function handleOpenDatasetUpload(): void {
   showDatasetUploadPanel.value = true;
 }
 
+function handleOpenManualDatasetEditor(): void {
+  if (!currentProjectId.value) {
+    saveSuccessMessage.value = null;
+    saveErrorMessage.value = "Please select or create a project first.";
+    return;
+  }
+
+  showManualDatasetEditor.value = true;
+}
+
 function handleCancelDatasetUpload(): void {
   showDatasetUploadPanel.value = false;
 }
@@ -499,6 +598,39 @@ async function handleDatasetUploadSuccess(created: DatasetRecord): Promise<void>
 function handleDatasetUploadError(message: string): void {
   saveSuccessMessage.value = null;
   saveErrorMessage.value = message || "Failed to upload dataset.";
+}
+
+async function handleManualDatasetSaved(payload: {
+  dataset: DatasetRecord;
+  suggestedChartType: string;
+  suggestedEncoding: { category?: string; value?: string; series?: string };
+}): Promise<void> {
+  const created = payload.dataset;
+
+  availableDatasets.value = [created, ...availableDatasets.value.filter((dataset) => dataset.id !== created.id)];
+  await selectDatasetById(created.id);
+
+  if (payload.suggestedChartType) {
+    updateType(payload.suggestedChartType as ChartSpec["type"]);
+  }
+
+  if (payload.suggestedEncoding.category && payload.suggestedEncoding.value) {
+    updateEncoding({
+      category: payload.suggestedEncoding.category,
+      value: payload.suggestedEncoding.value,
+      series: payload.suggestedEncoding.series,
+    });
+  }
+
+  saveErrorMessage.value = null;
+  saveSuccessMessage.value = `Dataset \"${created.name}\" saved and selected.`;
+  showManualDatasetEditor.value = false;
+  showDatasetUploadPanel.value = false;
+}
+
+function handleManualDatasetEditorError(message: string): void {
+  saveSuccessMessage.value = null;
+  saveErrorMessage.value = message || "Failed to save manual dataset.";
 }
 
 function handleSelectProject(event: Event): void {
@@ -695,6 +827,7 @@ onMounted(async () => {
   try {
     await loadAvailableProjects();
     await loadDatasetsForProject(currentProjectId.value);
+    await applyIncomingDatasetFromRoute();
   } catch {
     availableProjects.value = [];
     availableDatasets.value = [];
@@ -711,6 +844,10 @@ watch(
   () => currentProjectId.value,
   async (projectId) => {
     await loadDatasetsForProject(projectId);
+
+    if (!routeAutoLoadApplied.value && queryValue(route.query.datasetId)) {
+      await applyIncomingDatasetFromRoute();
+    }
   }
 );
 
@@ -1069,10 +1206,11 @@ function toggleSidebar(): void {
         <button class="btn btn--primary" :disabled="isSavingChart" @click="saveChart">
           {{ isSavingChart ? 'Saving...' : 'Save to Project' }}
         </button>
+        <p v-if="incomingDatasetLoading" class="status-text">Preparing dataset and mapping...</p>
         <p v-if="saveSuccessMessage" class="status-text">{{ saveSuccessMessage }}</p>
         <p v-else-if="saveErrorMessage" class="alert-text">{{ saveErrorMessage }}</p>
         <input type="file" ref="projectInputRef" style="display:none" accept="application/json" @change="handleLoadProject" />
-        <button class="btn btn--outline" @click="triggerLoadProject">
+        <button v-show="false" class="btn btn--outline" @click="triggerLoadProject">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right:4px"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16 6l-4-4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 2v13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Load Project
         </button>
@@ -1124,7 +1262,7 @@ function toggleSidebar(): void {
         </div>
 
         <div>
-          <button class="icon-btn" title="Fullscreen preview" @click="togglePreviewFullscreen">
+          <button v-show="false" class="icon-btn" title="Fullscreen preview" @click="togglePreviewFullscreen">
             <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 4h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M4 4v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M20 20h-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M20 20v-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           </button>
         </div>
@@ -1180,6 +1318,7 @@ function toggleSidebar(): void {
               </div>
               <div class="form-field" style="margin-top: 8px;">
                 <button class="pill" :disabled="!currentProjectId" @click="handleOpenDatasetUpload">Upload Dataset</button>
+                <button class="pill" :disabled="!currentProjectId" @click="handleOpenManualDatasetEditor">Create Dataset Manually</button>
               </div>
               <DatasetUploadPanel
                 v-if="showDatasetUploadPanel && currentProjectId"
@@ -1187,6 +1326,7 @@ function toggleSidebar(): void {
                 @uploaded="handleDatasetUploadSuccess"
                 @cancel="handleCancelDatasetUpload"
                 @error="handleDatasetUploadError"
+                @open-manual-editor="handleOpenManualDatasetEditor"
               />
               <p class="muted" style="margin-top:6px;">
                 {{ selectedDatasetName ? `Using dataset: ${selectedDatasetName}` : 'Dataset selection feeds DataJson into the chart preview.' }}
@@ -1201,6 +1341,7 @@ function toggleSidebar(): void {
                 @update:years="updateYears"
                 @navigate:config="() => { activeStep = 3; }"
                 @preview-refresh="onPreviewRefresh"
+                @open-manual-editor="handleOpenManualDatasetEditor"
               />
             </div>
 
@@ -1331,6 +1472,15 @@ function toggleSidebar(): void {
       </div>
       <div class="embed-backdrop" @click="embedOpen = false" style="position:fixed;inset:0;background:rgba(0,0,0,0.3);z-index:900;"></div>
     </div>
+
+    <ManualDatasetEditor
+      v-if="showManualDatasetEditor && currentProjectId"
+      :project-id="currentProjectId"
+      :dataset="null"
+      @close="showManualDatasetEditor = false"
+      @saved="handleManualDatasetSaved"
+      @error="handleManualDatasetEditorError"
+    />
   </main>
 </template>
 

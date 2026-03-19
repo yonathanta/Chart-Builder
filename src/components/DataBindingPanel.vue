@@ -14,6 +14,7 @@ const emit = defineEmits<{
   (e: "update:years", payload: string[]): void;
   (e: "navigate:config"): void;
   (e: "preview-refresh"): void;
+  (e: "open-manual-editor"): void;
 }>();
 
 const local = reactive<DataBinding>({
@@ -145,6 +146,7 @@ function updateMapping(key: 'category' | 'value' | 'series', val: string) {
       <span>Upload Data (JSON, CSV, Excel)</span>
       <div class="upload-container">
         <input type="file" accept="application/json,.csv,.tsv,.xls,.xlsx" @change="handleFileUpload" class="file-input" />
+        <button type="button" class="manual-btn" @click="$emit('open-manual-editor')">Create Dataset Manually</button>
         <div v-if="uploadStatus" :class="uploadStatus.startsWith('Error') ? 'status--error' : 'status--ok'" class="status-msg">
           {{ uploadStatus }}
         </div>
@@ -213,6 +215,17 @@ function updateMapping(key: 'category' | 'value' | 'series', val: string) {
 .file-input {
   font-size: 13px;
   width: 100%;
+}
+
+.manual-btn {
+  height: 34px;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .settings-subtitle {

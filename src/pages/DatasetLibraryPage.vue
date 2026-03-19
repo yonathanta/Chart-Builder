@@ -3,9 +3,9 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import DatasetUploadPanel from '../components/DatasetUploadPanel.vue'
 import DatasetPreview from '../components/DatasetPreview.vue'
+import ManualDatasetEditor from '../components/ManualDatasetEditor.vue'
 import datasetService, {
   type DatasetRecord,
-  type UpdateDatasetPayload,
 } from '../services/datasetService'
 import { useProjectStore } from '../stores/projectStore'
 
@@ -19,6 +19,8 @@ const message = ref('')
 const selectedDatasetId = ref('')
 const openedDataset = ref<DatasetRecord | null>(null)
 const showUploadPanel = ref(false)
+const showManualEditor = ref(false)
+const editingDataset = ref<DatasetRecord | null>(null)
 const GLOBAL_SELECTED_DATASET_KEY = 'selectedDatasetId'
 const DATASET_SYNC_SIGNAL_KEY = 'chartBuilder:lastDatasetUpdate'
 
@@ -128,6 +130,33 @@ function formatDate(value?: string): string {
   return date.toLocaleString()
 }
 
+function normalizeRows(data: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(data)) {
+    return data.filter((item) => typeof item === 'object' && item !== null) as Array<Record<string, unknown>>
+  }
+
+  if (typeof data === 'object' && data !== null) {
+    const wrappedData = (data as { rows?: unknown; data?: unknown })
+    if (Array.isArray(wrappedData.rows)) {
+      return wrappedData.rows.filter((item) => typeof item === 'object' && item !== null) as Array<Record<string, unknown>>
+    }
+    if (Array.isArray(wrappedData.data)) {
+      return wrappedData.data.filter((item) => typeof item === 'object' && item !== null) as Array<Record<string, unknown>>
+    }
+  }
+
+  return []
+}
+
+function datasetDisplayType(sourceType: string): string {
+  return sourceType.toLowerCase() === 'manual' ? 'Manual' : 'Uploaded'
+}
+
+function lastModified(dataset: DatasetRecord): string {
+  const extended = dataset as DatasetRecord & { updatedAt?: string }
+  return formatDate(extended.updatedAt || dataset.createdAt)
+}
+
 async function loadDatasets(): Promise<void> {
   const projectId = currentProjectId.value
   if (!projectId) {
@@ -172,42 +201,10 @@ function handleUploadError(messageText: string): void {
   setMessage(messageText || 'Failed to upload dataset.')
 }
 
-async function handleCreateManualDataset(): Promise<void> {
-  const projectId = currentProjectId.value
-  if (!projectId || saving.value) {
-    return
-  }
-
-  const name = window.prompt('Dataset name')?.trim()
-  if (!name) {
-    return
-  }
-
-  const description = window.prompt('Description (optional)')?.trim()
-  const dataJson = window.prompt('Dataset JSON (e.g. [{"x":1,"y":2}])', '[]')?.trim()
-
-  if (!dataJson) {
-    return
-  }
-
-  saving.value = true
-  try {
-    const created = await datasetService.createDataset({
-      name,
-      description: description || undefined,
-      projectId,
-      dataJson,
-      sourceType: 'manual',
-    })
-
-    datasets.value = [created, ...datasets.value]
-    selectedDatasetId.value = created.id
-    setMessage('Dataset created successfully.')
-  } catch (error) {
-    setMessage(getErrorMessage(error, 'Failed to create dataset.'))
-  } finally {
-    saving.value = false
-  }
+function handleCreateManualDataset(): void {
+  showUploadPanel.value = false
+  editingDataset.value = null
+  showManualEditor.value = true
 }
 
 async function handleOpenDataset(): Promise<void> {
@@ -234,39 +231,108 @@ async function handleEditDataset(dataset: DatasetRecord): Promise<void> {
   }
 
   try {
-    const loaded = await datasetService.getDataset(dataset.id)
-    const name = window.prompt('Dataset name', loaded.name)?.trim()
-    if (!name) {
-      return
-    }
-
-    const description = window.prompt('Description (optional)', loaded.description ?? '')?.trim()
-    const sourceType = window.prompt('Source type', loaded.sourceType)?.trim()
-    if (!sourceType) {
-      return
-    }
-
-    const updatePayload: UpdateDatasetPayload = {
-      name,
-      description: description || undefined,
-      dataJson: loaded.dataJson,
-      sourceType,
-    }
-
-    saving.value = true
-    const updated = await datasetService.updateDataset(dataset.id, updatePayload)
-    datasets.value = datasets.value.map((item) => (item.id === updated.id ? updated : item))
-
-    if (openedDataset.value?.id === updated.id) {
-      openedDataset.value = { ...openedDataset.value, ...updated }
-    }
-
-    setMessage('Dataset updated successfully.')
+    editingDataset.value = await datasetService.getDataset(dataset.id)
+    showManualEditor.value = true
   } catch (error) {
-    setMessage(getErrorMessage(error, 'Failed to update dataset.'))
-  } finally {
-    saving.value = false
+    setMessage(getErrorMessage(error, 'Failed to open dataset editor.'))
   }
+}
+
+async function handleDuplicateDataset(dataset: DatasetRecord): Promise<void> {
+  if (saving.value || !currentProjectId.value) {
+    return
+  }
+
+  try {
+    const loaded = await datasetService.getDataset(dataset.id)
+    const parsed = JSON.parse(loaded.dataJson) as unknown
+    const rows = normalizeRows(parsed)
+
+    const duplicateDataJson = JSON.stringify({
+      ...(typeof parsed === 'object' && parsed !== null ? parsed : {}),
+      id: `${loaded.id}-copy-${Date.now()}`,
+      name: `${loaded.name} Copy`,
+      rows,
+      data: rows,
+      lastModified: new Date().toISOString(),
+    })
+
+    const created = await datasetService.createDataset({
+      projectId: currentProjectId.value,
+      name: `${loaded.name} Copy`,
+      description: loaded.description,
+      dataJson: duplicateDataJson,
+      sourceType: loaded.sourceType || 'manual',
+    })
+
+    datasets.value = [created, ...datasets.value]
+    setMessage('Dataset duplicated successfully.')
+  } catch (error) {
+    setMessage(getErrorMessage(error, 'Failed to duplicate dataset.'))
+  }
+}
+
+function handleManualEditorClose(): void {
+  showManualEditor.value = false
+  editingDataset.value = null
+}
+
+function handleManualEditorSaved(payload: {
+  dataset: DatasetRecord
+  createChartRequested: boolean
+  suggestedChartType?: string
+  suggestedEncoding?: {
+    category?: string
+    value?: string
+    series?: string
+  }
+}): void {
+  const saved = payload.dataset
+  const existingIndex = datasets.value.findIndex((item) => item.id === saved.id)
+
+  if (existingIndex >= 0) {
+    datasets.value.splice(existingIndex, 1, saved)
+  } else {
+    datasets.value = [saved, ...datasets.value]
+  }
+
+  selectedDatasetId.value = saved.id
+  persistDatasetSelection(currentProjectId.value, saved)
+
+  if (payload.createChartRequested) {
+    const query: Record<string, string> = {
+      datasetId: saved.id,
+      projectId: currentProjectId.value,
+      autoload: '1',
+    }
+
+    if (payload.suggestedChartType) {
+      query.chartType = payload.suggestedChartType
+    }
+
+    if (payload.suggestedEncoding?.category) {
+      query.xField = payload.suggestedEncoding.category
+    }
+
+    if (payload.suggestedEncoding?.value) {
+      query.yField = payload.suggestedEncoding.value
+    }
+
+    if (payload.suggestedEncoding?.series) {
+      query.seriesField = payload.suggestedEncoding.series
+    }
+
+    handleManualEditorClose()
+    router.push({ path: '/charts', query })
+    return
+  }
+
+  setMessage(editingDataset.value ? 'Dataset updated successfully.' : 'Dataset created successfully.')
+  handleManualEditorClose()
+}
+
+function handleManualEditorError(messageText: string): void {
+  setMessage(messageText || 'Failed to save manual dataset.')
 }
 
 async function handleDeleteDataset(dataset: DatasetRecord): Promise<void> {
@@ -333,6 +399,7 @@ watch(
         @uploaded="handleUploadSuccess"
         @cancel="handleUploadCancel"
         @error="handleUploadError"
+        @open-manual-editor="handleCreateManualDataset"
       />
 
       <p v-if="message" class="message">{{ message }}</p>
@@ -348,8 +415,8 @@ watch(
           <tr>
             <th>Dataset Name</th>
             <th>Description</th>
-            <th>Source Type</th>
-            <th>Created Date</th>
+            <th>Type</th>
+            <th>Last Modified</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -361,12 +428,13 @@ watch(
           >
             <td>{{ dataset.name }}</td>
             <td>{{ dataset.description || '-' }}</td>
-            <td>{{ dataset.sourceType }}</td>
-            <td>{{ formatDate(dataset.createdAt) }}</td>
+            <td>{{ datasetDisplayType(dataset.sourceType) }}</td>
+            <td>{{ lastModified(dataset) }}</td>
             <td>
               <div class="row-actions">
                 <button class="small" @click="handleUseDataset(dataset)">Use</button>
                 <button class="small" @click="handleEditDataset(dataset)">Edit</button>
+                <button class="small" @click="handleDuplicateDataset(dataset)">Duplicate</button>
                 <button class="small danger" @click="handleDeleteDataset(dataset)">Delete</button>
               </div>
             </td>
@@ -379,6 +447,15 @@ watch(
         <DatasetPreview :dataset-id="openedDataset.id" />
         <button class="small" @click="goToCharts">Use in Charts</button>
       </div>
+
+      <ManualDatasetEditor
+        v-if="showManualEditor && currentProjectId"
+        :project-id="currentProjectId"
+        :dataset="editingDataset"
+        @close="handleManualEditorClose"
+        @saved="handleManualEditorSaved"
+        @error="handleManualEditorError"
+      />
     </section>
   </main>
 </template>

@@ -52,7 +52,7 @@ type DashboardPageState = {
 
 type StudioSnapshot = {
   pages: DashboardPageState[]
-  selectedPageId: string
+  activePageId: string
   canvasMode: 'responsive' | 'a4'
   showGrid: boolean
   snapToGrid: boolean
@@ -87,7 +87,7 @@ const snapToGrid = ref(true)
 const zoomPercent = ref(100)
 
 const pages = ref<DashboardPageState[]>([])
-const selectedPageId = ref('')
+const activePageId = ref('')
 const selectedWidgetId = ref<string | null>(null)
 
 const countryFilter = ref('')
@@ -118,7 +118,7 @@ const componentPalette: Array<{ kind: DashboardWidgetKind; label: string; icon: 
 ]
 
 const activePage = computed(() => {
-  const found = pages.value.find((page) => page.id === selectedPageId.value)
+  const found = pages.value.find((page) => page.id === activePageId.value)
   if (found) return found
   return pages.value[0] ?? null
 })
@@ -253,7 +253,7 @@ function studioStorageKey(): string {
 function snapshot(): StudioSnapshot {
   return {
     pages: pages.value,
-    selectedPageId: selectedPageId.value,
+    activePageId: activePageId.value,
     canvasMode: canvasMode.value,
     showGrid: showGrid.value,
     snapToGrid: snapToGrid.value,
@@ -269,7 +269,7 @@ function snapshot(): StudioSnapshot {
 
 function applySnapshot(next: StudioSnapshot): void {
   pages.value = next.pages
-  selectedPageId.value = next.selectedPageId
+  activePageId.value = next.activePageId
   canvasMode.value = next.canvasMode
   showGrid.value = next.showGrid
   snapToGrid.value = next.snapToGrid
@@ -337,6 +337,14 @@ function loadStudioFromLocal(): boolean {
     const parsed = JSON.parse(raw) as StudioSnapshot
     if (!Array.isArray(parsed.pages) || parsed.pages.length === 0) {
       return false
+    }
+
+    if (!parsed.activePageId && (parsed as unknown as { selectedPageId?: string }).selectedPageId) {
+      parsed.activePageId = (parsed as unknown as { selectedPageId?: string }).selectedPageId ?? ''
+    }
+
+    if (!parsed.activePageId || !parsed.pages.some((page) => page.id === parsed.activePageId)) {
+      parsed.activePageId = parsed.pages[0]?.id ?? ''
     }
 
     applySnapshot(parsed)
@@ -411,7 +419,7 @@ async function loadDashboards(projectId: string): Promise<void> {
     dashboards.value = []
     selectedDashboardId.value = ''
     pages.value = [defaultPage()]
-    selectedPageId.value = pages.value[0]?.id ?? ''
+    activePageId.value = pages.value[0]?.id ?? ''
     return
   }
 
@@ -582,7 +590,7 @@ async function hydrateDashboardCharts(layouts: DashboardChartLayout[]): Promise<
 async function loadDashboardDetails(dashboardId: string): Promise<void> {
   if (!dashboardId) {
     pages.value = [defaultPage()]
-    selectedPageId.value = pages.value[0]?.id ?? ''
+    activePageId.value = pages.value[0]?.id ?? ''
     return
   }
 
@@ -596,14 +604,14 @@ async function loadDashboardDetails(dashboardId: string): Promise<void> {
       name: 'Page 1',
       items: chartWidgets,
     }]
-    selectedPageId.value = pages.value[0]?.id ?? ''
+    activePageId.value = pages.value[0]?.id ?? ''
 
     if (!loadStudioFromLocal()) {
       persistStudioToLocal()
     }
   } catch {
     pages.value = [defaultPage()]
-    selectedPageId.value = pages.value[0]?.id ?? ''
+    activePageId.value = pages.value[0]?.id ?? ''
     setMessage('Failed to load dashboard details.')
   } finally {
     loading.value = false
@@ -659,12 +667,14 @@ function startProjectChartDrag(chartId: string, event: DragEvent): void {
   if (!event.dataTransfer) return
   event.dataTransfer.effectAllowed = 'copy'
   event.dataTransfer.setData('application/x-chart-id', chartId)
+  event.dataTransfer.setData('text/plain', `chart:${chartId}`)
 }
 
 function startComponentDrag(kind: DashboardWidgetKind, event: DragEvent): void {
   if (!event.dataTransfer) return
   event.dataTransfer.effectAllowed = 'copy'
   event.dataTransfer.setData('application/x-widget-kind', kind)
+  event.dataTransfer.setData('text/plain', `widget:${kind}`)
 }
 
 function createWidget(kind: DashboardWidgetKind, x: number, y: number): DashboardCanvasItem {
@@ -714,8 +724,21 @@ function createChartWidget(chartId: string, x: number, y: number): DashboardCanv
   }
 }
 
-function addWidgetToActivePage(widget: DashboardCanvasItem): void {
-  const page = activePage.value
+function pageById(pageId: string): DashboardPageState | null {
+  return pages.value.find((page) => page.id === pageId) ?? null
+}
+
+function nextInsertY(pageId: string): number {
+  const page = pageById(pageId)
+  if (!page || page.items.length === 0) {
+    return 1
+  }
+
+  return Math.max(...page.items.map((item) => item.y + item.h)) + 1
+}
+
+function addWidgetToPage(pageId: string, widget: DashboardCanvasItem): void {
+  const page = pageById(pageId)
   if (!page) return
 
   commitMutation(() => {
@@ -724,18 +747,23 @@ function addWidgetToActivePage(widget: DashboardCanvasItem): void {
   })
 }
 
-function handleAddWidget(payload: { kind: DashboardWidgetKind; chartId?: string; x: number; y: number }): void {
+function handleAddWidget(payload: { pageId?: string; kind: DashboardWidgetKind; chartId?: string; x: number; y: number }): void {
+  const targetPageId = payload.pageId && pageById(payload.pageId) ? payload.pageId : activePageId.value
+  if (!targetPageId) {
+    return
+  }
+
   if (payload.kind === 'chart' && payload.chartId) {
     const widget = createChartWidget(payload.chartId, payload.x, payload.y)
     if (!widget) {
       setMessage('Unable to add chart to canvas.')
       return
     }
-    addWidgetToActivePage(widget)
+    addWidgetToPage(targetPageId, widget)
     return
   }
 
-  addWidgetToActivePage(createWidget(payload.kind, payload.x, payload.y))
+  addWidgetToPage(targetPageId, createWidget(payload.kind, payload.x, payload.y))
 }
 
 function handleCanvasUpdateItem(payload: { id: string; patch: Partial<DashboardCanvasItem> }): void {
@@ -808,7 +836,6 @@ function addPage(): void {
   commitMutation(() => {
     const next = defaultPage(`Page ${pages.value.length + 1}`)
     pages.value = [...pages.value, next]
-    selectedPageId.value = next.id
   })
 }
 
@@ -817,8 +844,18 @@ function removeCurrentPage(): void {
 
   commitMutation(() => {
     pages.value = pages.value.filter((page) => page.id !== activePage.value?.id)
-    selectedPageId.value = pages.value[0]?.id ?? ''
+    if (!pages.value.some((page) => page.id === activePageId.value)) {
+      activePageId.value = pages.value[0]?.id ?? ''
+    }
   })
+}
+
+function setActivePage(pageId: string): void {
+  if (!pages.value.some((page) => page.id === pageId)) {
+    return
+  }
+
+  activePageId.value = pageId
 }
 
 async function exportPng(): Promise<void> {
@@ -937,6 +974,12 @@ watch(selectedDashboardId, async (dashboardId) => {
   await loadDashboardDetails(dashboardId)
 })
 
+watch(pages, () => {
+  if (!activePageId.value || !pages.value.some((page) => page.id === activePageId.value)) {
+    activePageId.value = pages.value[0]?.id ?? ''
+  }
+}, { deep: true })
+
 watch(selectedDatasetId, async (datasetId) => {
   await loadSelectedDataset(datasetId)
   schedulePersistStudio()
@@ -1054,7 +1097,7 @@ onMounted(async () => {
             :title="component.label"
             draggable="true"
             @dragstart="startComponentDrag(component.kind, $event)"
-            @click="handleAddWidget({ kind: component.kind, x: 0, y: renderItems.length * 2 + 1 })"
+            @click="handleAddWidget({ pageId: activePageId, kind: component.kind, x: 0, y: nextInsertY(activePageId) })"
           >
             <span>{{ component.icon }}</span>
           </button>
@@ -1069,7 +1112,7 @@ onMounted(async () => {
           :title="chart.name"
           draggable="true"
           @dragstart="startProjectChartDrag(chart.id, $event)"
-          @click="handleAddWidget({ kind: 'chart', chartId: chart.id, x: 0, y: renderItems.length * 2 + 1 })"
+          @click="handleAddWidget({ pageId: activePageId, kind: 'chart', chartId: chart.id, x: 0, y: nextInsertY(activePageId) })"
         >
           <div class="chart-item__title">{{ chart.name }}</div>
           <small>{{ chart.chartType }}</small>
@@ -1079,8 +1122,10 @@ onMounted(async () => {
         </button>
       </aside>
 
-      <section class="canvas-panel" ref="canvasCaptureRef">
+      <section class="canvas-panel" :class="{ 'canvas-panel--active': !!activePageId }" ref="canvasCaptureRef">
+        <div class="active-page-chip">Active Page: {{ activePage?.name ?? 'None' }}</div>
         <DashboardLayoutGrid
+          :page-id="activePageId"
           :items="renderItems"
           :selected-id="selectedWidgetId"
           :device-type="responsiveStore.deviceType"
@@ -1171,8 +1216,8 @@ onMounted(async () => {
           v-for="page in pages"
           :key="page.id"
           class="page-tab"
-          :class="{ 'page-tab--active': page.id === selectedPageId }"
-          @click="selectedPageId = page.id"
+          :class="{ 'page-tab--active': page.id === activePageId }"
+          @click="setActivePage(page.id)"
         >
           {{ page.name }}
         </button>
@@ -1276,6 +1321,28 @@ onMounted(async () => {
   border-radius: 12px;
   background: #ffffff;
   padding: 10px;
+}
+
+.canvas-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.canvas-panel--active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.active-page-chip {
+  align-self: flex-start;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 4px 10px;
 }
 
 .left-panel,

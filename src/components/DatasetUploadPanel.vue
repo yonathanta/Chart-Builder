@@ -11,6 +11,7 @@ const emit = defineEmits<{
   (e: 'uploaded', dataset: DatasetRecord): void
   (e: 'cancel'): void
   (e: 'error', message: string): void
+  (e: 'open-manual-editor'): void
 }>()
 
 const file = ref<File | null>(null)
@@ -184,6 +185,9 @@ async function saveUpload(): Promise<void> {
     </div>
 
     <div class="actions">
+      <button class="ghost" @click="$emit('open-manual-editor')">
+        Create Dataset Manually
+      </button>
       <button :disabled="!canSave" @click="saveUpload">
         {{ saving ? 'Saving...' : 'Save Dataset' }}
       </button>

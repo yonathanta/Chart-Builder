@@ -678,9 +678,6 @@ onBeforeUnmount(() => {
         <p class="preview__subtitle">Live preview • {{ spec.type.charAt(0).toUpperCase() + spec.type.slice(1) }}</p>
       </div>
       <div class="preview__header-actions">
-        <div class="preview__palette">
-          <span v-for="(color, idx) in spec.style?.palette?.slice(0, 5) ?? []" :key="idx" class="palette-dot" :style="{ backgroundColor: color }"></span>
-        </div>
         <button 
           type="button" 
           class="preview__refresh-btn btn btn--sm btn--primary" 
@@ -872,16 +869,6 @@ onBeforeUnmount(() => {
   font-size: 13px;
   color: #64748b;
   margin: 4px 0 0 0;
-}
-
-.preview__palette {
-  display: flex;
-  gap: 6px;
-}
-.palette-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
 }
 
 .preview__surface {

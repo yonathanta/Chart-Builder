@@ -21,6 +21,11 @@ function normalizeRows(data: unknown): Array<Record<string, unknown>> {
   }
 
   if (typeof data === 'object' && data !== null) {
+    const wrappedRows = (data as { rows?: unknown; data?: unknown }).rows
+    if (Array.isArray(wrappedRows)) {
+      return wrappedRows.filter((item) => typeof item === 'object' && item !== null) as Array<Record<string, unknown>>
+    }
+
     const wrappedData = (data as { data?: unknown }).data
     if (Array.isArray(wrappedData)) {
       return wrappedData.filter((item) => typeof item === 'object' && item !== null) as Array<Record<string, unknown>>

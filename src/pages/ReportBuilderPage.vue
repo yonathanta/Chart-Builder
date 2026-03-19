@@ -830,12 +830,27 @@ function startReportChartDrag(chartId: string, event: DragEvent): void {
 
   event.dataTransfer.effectAllowed = 'copy'
   event.dataTransfer.setData('application/x-chart-id', chartId)
+  event.dataTransfer.setData('text/plain', `chart:${chartId}`)
+}
+
+function handleReportDragOver(event: DragEvent): void {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy'
+  }
 }
 
 async function handleReportDrop(event: DragEvent): Promise<void> {
   event.preventDefault()
 
-  const chartId = event.dataTransfer?.getData('application/x-chart-id')
+  let chartId = event.dataTransfer?.getData('application/x-chart-id') ?? ''
+  if (!chartId) {
+    const fallback = event.dataTransfer?.getData('text/plain') ?? ''
+    if (fallback.startsWith('chart:')) {
+      chartId = fallback.slice('chart:'.length).trim()
+    }
+  }
+
   if (!chartId) {
     return
   }
@@ -1534,13 +1549,12 @@ function collectPrintDocument(): string {
         page-break-after: auto;
       }
 
-      .report-block {
+      .report-page,
+      .report-page * {
+        border: none !important;
         box-shadow: none !important;
-      }
-
-      .report-block--floating,
-      .report-block--active {
-        box-shadow: none !important;
+        filter: none !important;
+        outline: none !important;
       }
     </style>
   </head>
@@ -1595,13 +1609,60 @@ async function exportPdf(): Promise<void> {
     return
   }
 
+  const previousPreviewMode = previewMode.value
   exporting.value = true
   try {
-    await openPrintExport(true)
-    setMessage('Print view opened. Save as PDF from the print dialog.')
+    previewMode.value = true
+    await nextTick()
+    await new Promise((resolve) => window.setTimeout(resolve, 220))
+
+    const element = reportCaptureRef.value
+    if (!element) {
+      setMessage('Report preview area is not available.')
+      return
+    }
+
+    const pages = Array.from(element.querySelectorAll<HTMLElement>('.report-page'))
+    if (pages.length === 0) {
+      setMessage('No report pages are available for export.')
+      return
+    }
+
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+      compress: true,
+    })
+
+    const pdfWidth = 210
+    const pdfHeight = 297
+
+    for (let index = 0; index < pages.length; index += 1) {
+      const page = pages[index]
+      const canvas = await html2canvas(page, {
+        scale: 3,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: '#ffffff',
+        logging: false,
+      })
+
+      const imageData = canvas.toDataURL('image/png')
+
+      if (index > 0) {
+        pdf.addPage()
+      }
+
+      pdf.addImage(imageData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'SLOW')
+    }
+
+    pdf.save(buildPdfFileName())
+    setMessage('High-quality PDF downloaded successfully.')
   } catch {
     setMessage('Failed to export PDF.')
   } finally {
+    previewMode.value = previousPreviewMode
     exporting.value = false
   }
 }
@@ -1749,10 +1810,10 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="right-tools">
-        <button class="icon-btn" :disabled="exporting || !selectedReportId" @click="previewPdf" title="Preview PDF">
+        <button class="icon-btn" :disabled="exporting || !selectedReportId" @click="previewMode = true" title="Preview Mode">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C6 5 2.2 9.7 1 12c1.2 2.3 5 7 11 7s9.8-4.7 11-7c-1.2-2.3-5-7-11-7zm0 11a4 4 0 110-8 4 4 0 010 8z"/></svg>
         </button>
-        <button class="icon-btn" :disabled="exporting || !selectedReportId" @click="exportPdf" title="Export PDF">
+        <button class="icon-btn" :disabled="exporting || !selectedReportId" @click="exportPdf" title="Download High-Quality PDF">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10m0 0l4-4m-4 4L8 9M5 15v4h14v-4"/></svg>
         </button>
         <div class="share-wrap">
@@ -1912,8 +1973,14 @@ onBeforeUnmount(() => {
         <p v-if="filteredAvailableCharts.length === 0" class="hint">No charts match your filters.</p>
       </aside>
 
-      <section class="report-preview" @dragover.prevent @drop="handleReportDrop">
-        <div class="pdf-surface" :style="reportCanvasStyle" ref="reportCaptureRef">
+      <section
+        class="report-preview"
+        :class="{ 'report-preview--clean': previewMode || exporting }"
+        @dragover="handleReportDragOver"
+        @dragenter.prevent
+        @drop="handleReportDrop"
+      >
+        <div class="pdf-surface" :style="reportCanvasStyle" ref="reportCaptureRef" @dragover="handleReportDragOver" @dragenter.prevent @drop="handleReportDrop">
           <p v-if="loading" class="hint">Loading report content...</p>
           <p v-else-if="sortedBlocks.length === 0" class="hint">No blocks in this report yet.</p>
 
@@ -2076,9 +2143,12 @@ onBeforeUnmount(() => {
 <style scoped>
 .report-builder-page {
   height: calc(100vh - var(--nav-height));
-  overflow: auto;
+  overflow: hidden;
   padding: 16px;
   background: #f5f7fb;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .topbar {
@@ -2249,6 +2319,8 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 320px 1fr;
   gap: 14px;
+  flex: 1;
+  min-height: 0;
 }
 
 .content-grid--preview {
@@ -2267,6 +2339,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100%;
+  overflow-y: auto;
 }
 
 .chart-picker h2 {
@@ -2420,8 +2497,30 @@ onBeforeUnmount(() => {
 }
 
 .report-preview {
+  min-height: 0;
+  height: 100%;
   overflow: auto;
   padding: 14px;
+}
+
+.report-preview--clean .report-page,
+.report-preview--clean .report-page * {
+  border: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+  outline: none !important;
+}
+
+.report-preview--clean {
+  background: #dbe1ea;
+}
+
+.report-preview--clean .pdf-surface {
+  padding: 20px 0 28px;
+}
+
+.report-preview--clean .report-page + .report-page {
+  margin-top: 28px;
 }
 
 .pdf-surface {
@@ -2669,6 +2768,49 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
 }
 
+.report-preview .report-block .title-input,
+.report-preview .report-block .subtitle-input,
+.report-preview .report-block .section-input,
+.report-preview .report-block .textarea-input {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  outline: none;
+}
+
+.report-preview .report-block .title-input:focus,
+.report-preview .report-block .subtitle-input:focus,
+.report-preview .report-block .section-input:focus,
+.report-preview .report-block .textarea-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.report-preview .report-block--title,
+.report-preview .report-block--subtitle,
+.report-preview .report-block--section,
+.report-preview .report-block--paragraph,
+.report-preview .report-block--notes,
+.report-preview .report-block--source {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.report-preview .report-block--active.report-block--title,
+.report-preview .report-block--active.report-block--subtitle,
+.report-preview .report-block--active.report-block--section,
+.report-preview .report-block--active.report-block--paragraph,
+.report-preview .report-block--active.report-block--notes,
+.report-preview .report-block--active.report-block--source {
+  box-shadow: none;
+}
+
 .media-controls {
   display: flex;
   flex-direction: column;
@@ -2713,6 +2855,8 @@ onBeforeUnmount(() => {
 
   .content-grid {
     grid-template-columns: 1fr;
+    flex: none;
+    min-height: auto;
   }
 
   .range-field {
@@ -2731,6 +2875,8 @@ onBeforeUnmount(() => {
 @media (max-width: 767px) {
   .report-builder-page {
     padding: 8px;
+    overflow: auto;
+    gap: 8px;
   }
 
   .action-toolbar {

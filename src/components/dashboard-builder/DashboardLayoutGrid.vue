@@ -39,6 +39,7 @@ export type DashboardCanvasItem = {
 
 const props = defineProps<{
   items: DashboardCanvasItem[]
+  pageId?: string
   selectedId?: string | null
   columns?: number
   rowHeightPx?: number
@@ -52,7 +53,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'update-item', payload: { id: string; patch: Partial<DashboardCanvasItem> }): void
-  (event: 'add-widget', payload: { kind: DashboardWidgetKind; chartId?: string; x: number; y: number }): void
+  (event: 'add-widget', payload: { pageId: string; kind: DashboardWidgetKind; chartId?: string; x: number; y: number }): void
   (event: 'select', payload: { id: string | null }): void
   (event: 'remove', payload: { id: string }): void
 }>()
@@ -113,6 +114,7 @@ const canvasStyle = computed(() => {
 
 const guideCol = ref<number | null>(null)
 const guideRow = ref<number | null>(null)
+const dropPreview = ref<{ x: number; y: number; w: number; h: number; kind: DashboardWidgetKind } | null>(null)
 
 let dragState:
   | {
@@ -244,8 +246,80 @@ function onPointerUp(): void {
   window.removeEventListener('mouseup', onPointerUp)
 }
 
+function clearDropPreview(): void {
+  dropPreview.value = null
+}
+
+function defaultSizeByKind(kind: DashboardWidgetKind): { w: number; h: number } {
+  if (kind === 'title') return { w: 8, h: 3 }
+  if (kind === 'subtitle') return { w: 7, h: 3 }
+  if (kind === 'paragraph') return { w: 6, h: 6 }
+  if (kind === 'kpi') return { w: 3, h: 4 }
+  if (kind === 'table') return { w: 6, h: 6 }
+  if (kind === 'image') return { w: 5, h: 6 }
+  if (kind === 'icon') return { w: 2, h: 3 }
+  return { w: 4, h: 4 }
+}
+
+function parseDropKind(event: DragEvent): DashboardWidgetKind | null {
+  const chartId = event.dataTransfer?.getData('application/x-chart-id')
+  if (chartId) return 'chart'
+
+  const kind = event.dataTransfer?.getData('application/x-widget-kind') as DashboardWidgetKind | ''
+  if (kind) return kind
+
+  const textFallback = event.dataTransfer?.getData('text/plain') ?? ''
+  if (textFallback.startsWith('chart:')) return 'chart'
+  if (textFallback.startsWith('widget:')) {
+    const parsed = textFallback.slice('widget:'.length).trim()
+    if (parsed === 'title' || parsed === 'subtitle' || parsed === 'paragraph' || parsed === 'kpi' || parsed === 'table' || parsed === 'image' || parsed === 'icon' || parsed === 'chart') {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+function onDragOver(event: DragEvent): void {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy'
+  }
+
+  const gridPos = computeGridFromPointer(event.clientX, event.clientY)
+  const kind = parseDropKind(event)
+  if (!gridPos || !kind) {
+    clearDropPreview()
+    return
+  }
+
+  const size = defaultSizeByKind(kind)
+  dropPreview.value = {
+    kind,
+    x: Math.max(0, Math.min(cols.value - size.w, gridPos.col)),
+    y: Math.max(0, gridPos.row),
+    w: size.w,
+    h: size.h,
+  }
+}
+
+function onDragLeave(event: DragEvent): void {
+  const related = event.relatedTarget as Node | null
+  if (related && canvasRef.value?.contains(related)) {
+    return
+  }
+  clearDropPreview()
+}
+
 function onDrop(event: DragEvent): void {
   event.preventDefault()
+  clearDropPreview()
+
+  const pageId = props.pageId ?? ''
+  if (!pageId) {
+    return
+  }
+
   const gridPos = computeGridFromPointer(event.clientX, event.clientY)
   if (!gridPos) {
     return
@@ -253,22 +327,56 @@ function onDrop(event: DragEvent): void {
 
   const chartId = event.dataTransfer?.getData('application/x-chart-id')
   if (chartId) {
+    const size = defaultSizeByKind('chart')
     emit('add-widget', {
+      pageId,
       kind: 'chart',
       chartId,
-      x: Math.max(0, Math.min(cols.value - 4, gridPos.col)),
+      x: Math.max(0, Math.min(cols.value - size.w, gridPos.col)),
       y: Math.max(0, gridPos.row),
     })
     return
   }
 
+  const textFallback = event.dataTransfer?.getData('text/plain') ?? ''
+  if (textFallback.startsWith('chart:')) {
+    const parsedChartId = textFallback.slice('chart:'.length).trim()
+    if (parsedChartId) {
+      const size = defaultSizeByKind('chart')
+      emit('add-widget', {
+        pageId,
+        kind: 'chart',
+        chartId: parsedChartId,
+        x: Math.max(0, Math.min(cols.value - size.w, gridPos.col)),
+        y: Math.max(0, gridPos.row),
+      })
+      return
+    }
+  }
+
   const kind = event.dataTransfer?.getData('application/x-widget-kind') as DashboardWidgetKind | ''
   if (kind) {
+    const size = defaultSizeByKind(kind)
     emit('add-widget', {
+      pageId,
       kind,
-      x: Math.max(0, Math.min(cols.value - 4, gridPos.col)),
+      x: Math.max(0, Math.min(cols.value - size.w, gridPos.col)),
       y: Math.max(0, gridPos.row),
     })
+    return
+  }
+
+  if (textFallback.startsWith('widget:')) {
+    const parsedKind = textFallback.slice('widget:'.length).trim()
+    if (parsedKind === 'title' || parsedKind === 'subtitle' || parsedKind === 'paragraph' || parsedKind === 'kpi' || parsedKind === 'table' || parsedKind === 'image' || parsedKind === 'icon' || parsedKind === 'chart') {
+      const size = defaultSizeByKind(parsedKind)
+      emit('add-widget', {
+        pageId,
+        kind: parsedKind,
+        x: Math.max(0, Math.min(cols.value - size.w, gridPos.col)),
+        y: Math.max(0, gridPos.row),
+      })
+    }
   }
 }
 
@@ -326,17 +434,25 @@ function tableHeaders(rows: Array<Record<string, unknown>>): string[] {
 </script>
 
 <template>
-  <section class="canvas-wrap">
-    <div class="canvas-shell" :style="canvasShellStyle">
+  <section class="canvas-wrap" @dragover="onDragOver" @dragleave="onDragLeave" @dragenter.prevent @drop="onDrop">
+    <div class="canvas-shell" :style="canvasShellStyle" @dragover="onDragOver" @dragleave="onDragLeave" @dragenter.prevent @drop="onDrop">
       <section
         ref="canvasRef"
         class="grid"
         :class="[`grid--${deviceType ?? 'desktop'}`, (canvasMode ?? 'responsive') === 'a4' ? 'grid--a4' : 'grid--responsive']"
         :style="canvasStyle"
-        @dragover.prevent
+        @dragover="onDragOver"
+        @dragleave="onDragLeave"
+        @dragenter.prevent
         @drop="onDrop"
         @click.self="emit('select', { id: null })"
       >
+        <div
+          v-if="dropPreview"
+          class="drop-preview"
+          :style="{ gridColumn: `${dropPreview.x + 1} / span ${dropPreview.w}`, gridRow: `${dropPreview.y + 1} / span ${dropPreview.h}` }"
+        ></div>
+
         <div
           v-if="guideCol !== null"
           class="guide guide--vertical"
@@ -657,6 +773,14 @@ td {
 .guide {
   pointer-events: none;
   z-index: 20;
+}
+
+.drop-preview {
+  pointer-events: none;
+  z-index: 12;
+  border: 2px dashed #2563eb;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.14);
 }
 
 .guide--vertical {
