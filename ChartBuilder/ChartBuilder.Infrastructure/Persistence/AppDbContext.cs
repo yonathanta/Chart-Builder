@@ -43,7 +43,7 @@ public sealed class AppDbContext : DbContext
             entity.HasMany(user => user.ProjectMembers)
                 .WithOne(projectMember => projectMember.User)
                 .HasForeignKey(projectMember => projectMember.UserId)
-                .OnDelete(DeleteBehavior.Cascade)
+                .OnDelete(DeleteBehavior.NoAction)
                 .IsRequired();
 
             entity.HasMany(user => user.AuditLogs)

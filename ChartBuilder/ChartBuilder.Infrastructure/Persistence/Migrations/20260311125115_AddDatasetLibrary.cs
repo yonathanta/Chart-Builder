@@ -62,12 +62,6 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
                 {
                     table.PrimaryKey("PK_Datasets", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_Datasets_AspNetUsers_UserId",
-                        column: x => x.UserId,
-                        principalTable: "AspNetUsers",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
                         name: "FK_Datasets_Projects_ProjectId",
                         column: x => x.ProjectId,
                         principalTable: "Projects",
@@ -76,27 +70,18 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.Sql(@"
-IF NOT EXISTS (SELECT 1 FROM [AspNetUsers])
-BEGIN
-    THROW 50001, 'Cannot migrate charts to datasets because AspNetUsers is empty.', 1;
-END;
-
 INSERT INTO [Datasets] ([Id], [Name], [Description], [ProjectId], [UserId], [DataJson], [SourceType], [CreatedAt])
 SELECT
     c.[Id],
     CONCAT('Migrated Dataset - ', c.[Name]),
     NULL,
     c.[ProjectId],
-    COALESCE(
-        owner.[Id],
-        (SELECT TOP (1) [Id] FROM [AspNetUsers] ORDER BY [Id])
-    ),
+    COALESCE(CONVERT(nvarchar(450), p.[UserId]), N'migration'),
     c.[StyleJson],
     'Manual',
     SYSUTCDATETIME()
 FROM [Charts] c
-LEFT JOIN [Projects] p ON p.[Id] = c.[ProjectId]
-LEFT JOIN [AspNetUsers] owner ON owner.[Id] = CONVERT(nvarchar(450), p.[UserId]);
+LEFT JOIN [Projects] p ON p.[Id] = c.[ProjectId];
 
 UPDATE [Charts]
 SET [DatasetId] = [Id]

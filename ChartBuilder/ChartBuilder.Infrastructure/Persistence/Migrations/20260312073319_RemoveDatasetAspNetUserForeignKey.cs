@@ -10,9 +10,16 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "FK_Datasets_AspNetUsers_UserId",
-                table: "Datasets");
+            migrationBuilder.Sql(@"
+IF EXISTS (
+    SELECT 1
+    FROM sys.foreign_keys
+    WHERE name = 'FK_Datasets_AspNetUsers_UserId'
+)
+BEGIN
+    ALTER TABLE [Datasets] DROP CONSTRAINT [FK_Datasets_AspNetUsers_UserId];
+END;
+");
         }
 
         /// <inheritdoc />

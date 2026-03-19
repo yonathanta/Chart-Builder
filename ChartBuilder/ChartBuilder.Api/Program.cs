@@ -248,7 +248,15 @@ using (var scope = app.Services.CreateScope())
     }
     catch (Exception exception)
     {
-        logger.LogWarning(exception, "Database initialization failed. Continuing startup without migrations/seeding.");
+        if (app.Environment.IsDevelopment())
+        {
+            logger.LogWarning(exception, "Database initialization failed. Continuing startup without migrations/seeding in Development.");
+        }
+        else
+        {
+            logger.LogError(exception, "Database initialization failed during startup.");
+            throw;
+        }
     }
 }
 

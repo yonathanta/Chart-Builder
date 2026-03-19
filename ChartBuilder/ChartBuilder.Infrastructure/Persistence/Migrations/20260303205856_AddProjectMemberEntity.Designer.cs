@@ -189,7 +189,7 @@ namespace ChartBuilder.Infrastructure.Persistence.Migrations
                     b.HasOne("ChartBuilder.Domain.Entities.User", "User")
                         .WithMany("ProjectMembers")
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.Navigation("Project");

@@ -9,9 +9,6 @@ const form = reactive({
   firstName: '',
   lastName: '',
   email: '',
-  phoneNumber: '',
-  department: '',
-  jobTitle: '',
   password: '',
   confirmPassword: '',
 })
@@ -42,10 +39,6 @@ function validateForm(): boolean {
   } else if (!isValidEmail(form.email.trim())) {
     errors.email = 'Enter a valid email address.'
   }
-
-  if (!form.phoneNumber.trim()) errors.phoneNumber = 'Phone number is required.'
-  if (!form.department.trim()) errors.department = 'Department is required.'
-  if (!form.jobTitle.trim()) errors.jobTitle = 'Job title is required.'
 
   if (!form.password) {
     errors.password = 'Password is required.'
@@ -150,9 +143,9 @@ async function handleSubmit(): Promise<void> {
       firstName: form.firstName.trim(),
       lastName: form.lastName.trim(),
       email: form.email.trim(),
-      phoneNumber: form.phoneNumber.trim(),
-      department: form.department.trim(),
-      jobTitle: form.jobTitle.trim(),
+      phoneNumber: 'N/A',
+      department: 'N/A',
+      jobTitle: 'N/A',
       password: form.password,
       confirmPassword: form.confirmPassword,
     })
@@ -177,7 +170,7 @@ function goToLogin(): void {
   <main class="register-page">
     <section class="register-card">
       <header class="register-header">
-        <h1>Institutional Registration</h1>
+        <h1>Registration</h1>
         <p>Complete the form below to request account access.</p>
       </header>
 
@@ -200,24 +193,6 @@ function goToLogin(): void {
           <span>Email</span>
           <input v-model="form.email" type="email" autocomplete="email" />
           <small v-if="errors.email" class="error">{{ errors.email }}</small>
-        </label>
-
-        <label class="field">
-          <span>Phone Number</span>
-          <input v-model="form.phoneNumber" type="tel" autocomplete="tel" />
-          <small v-if="errors.phoneNumber" class="error">{{ errors.phoneNumber }}</small>
-        </label>
-
-        <label class="field">
-          <span>Department</span>
-          <input v-model="form.department" type="text" />
-          <small v-if="errors.department" class="error">{{ errors.department }}</small>
-        </label>
-
-        <label class="field">
-          <span>Job Title</span>
-          <input v-model="form.jobTitle" type="text" />
-          <small v-if="errors.jobTitle" class="error">{{ errors.jobTitle }}</small>
         </label>
 
         <label class="field">

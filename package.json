@@ -7,7 +7,14 @@
     "dev": "vite",
     "type-check": "vue-tsc -b",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "api:build": "dotnet build ChartBuilder/ChartBuilder.Api/ChartBuilder.Api.csproj -c Release",
+    "db:migrations:list": "dotnet ef migrations list --no-build --configuration Release --project ChartBuilder/ChartBuilder.Infrastructure/ChartBuilder.Infrastructure.csproj --startup-project ChartBuilder/ChartBuilder.Api/ChartBuilder.Api.csproj --context ChartBuilder.Infrastructure.Persistence.AppDbContext",
+    "db:migrations:list:identity": "dotnet ef migrations list --no-build --configuration Release --project ChartBuilder/ChartBuilder.Infrastructure/ChartBuilder.Infrastructure.csproj --startup-project ChartBuilder/ChartBuilder.Api/ChartBuilder.Api.csproj --context ChartBuilder.Infrastructure.Persistence.ApplicationDbContext",
+    "db:migrations:check": "dotnet ef migrations has-pending-model-changes --no-build --configuration Release --project ChartBuilder/ChartBuilder.Infrastructure/ChartBuilder.Infrastructure.csproj --startup-project ChartBuilder/ChartBuilder.Api/ChartBuilder.Api.csproj --context ChartBuilder.Infrastructure.Persistence.AppDbContext",
+    "db:migrations:check:identity": "dotnet ef migrations has-pending-model-changes --no-build --configuration Release --project ChartBuilder/ChartBuilder.Infrastructure/ChartBuilder.Infrastructure.csproj --startup-project ChartBuilder/ChartBuilder.Api/ChartBuilder.Api.csproj --context ChartBuilder.Infrastructure.Persistence.ApplicationDbContext",
+    "db:update": "dotnet ef database update --no-build --configuration Release --project ChartBuilder/ChartBuilder.Infrastructure/ChartBuilder.Infrastructure.csproj --startup-project ChartBuilder/ChartBuilder.Api/ChartBuilder.Api.csproj --context ChartBuilder.Infrastructure.Persistence.AppDbContext",
+    "db:update:identity": "dotnet ef database update --no-build --configuration Release --project ChartBuilder/ChartBuilder.Infrastructure/ChartBuilder.Infrastructure.csproj --startup-project ChartBuilder/ChartBuilder.Api/ChartBuilder.Api.csproj --context ChartBuilder.Infrastructure.Persistence.ApplicationDbContext"
   },
   "dependencies": {
     "@types/html2canvas": "^0.5.35",
