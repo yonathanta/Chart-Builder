@@ -8,10 +8,12 @@ const projectStore = useProjectStore()
 const projects = ref<ProjectRecord[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const deletingProjectId = ref('')
 const message = ref('')
 
 const newProjectName = ref('')
 const newProjectDescription = ref('')
+const PROJECTS_CHANGED_EVENT = 'projects:changed'
 
 const selectedProjectId = computed(() => projectStore.currentProject?.id ?? '')
 
@@ -89,6 +91,10 @@ function setMessage(text: string): void {
   }, 2500)
 }
 
+function notifyProjectsChanged(): void {
+  window.dispatchEvent(new CustomEvent(PROJECTS_CHANGED_EVENT))
+}
+
 async function loadProjects(): Promise<void> {
   loading.value = true
   try {
@@ -130,6 +136,7 @@ async function createProject(): Promise<void> {
 
     projects.value = [created, ...projects.value]
     projectStore.setCurrentProject({ id: created.id, name: created.name })
+    notifyProjectsChanged()
 
     newProjectName.value = ''
     newProjectDescription.value = ''
@@ -138,6 +145,38 @@ async function createProject(): Promise<void> {
     setMessage(getErrorMessage(error, 'Failed to create project.'))
   } finally {
     saving.value = false
+  }
+}
+
+async function deleteProject(project: ProjectRecord): Promise<void> {
+  if (deletingProjectId.value || saving.value) {
+    return
+  }
+
+  const confirmed = window.confirm(`Delete project "${project.name}"? This cannot be undone.`)
+  if (!confirmed) {
+    return
+  }
+
+  deletingProjectId.value = project.id
+  try {
+    await projectService.deleteProject(project.id)
+
+    const remainingProjects = projects.value.filter((candidate) => candidate.id !== project.id)
+    projects.value = remainingProjects
+
+    if (selectedProjectId.value === project.id) {
+      const nextProject = remainingProjects[0]
+      projectStore.setCurrentProject(nextProject ? { id: nextProject.id, name: nextProject.name } : null)
+    }
+
+    notifyProjectsChanged()
+
+    setMessage(`Deleted project: ${project.name}`)
+  } catch (error) {
+    setMessage(getErrorMessage(error, 'Failed to delete project.'))
+  } finally {
+    deletingProjectId.value = ''
   }
 }
 
@@ -167,16 +206,29 @@ onMounted(async () => {
       <p v-if="loading" class="hint">Loading projects...</p>
       <p v-else-if="projects.length === 0" class="hint">No projects yet.</p>
 
-      <button
+      <div
         v-for="project in projects"
         :key="project.id"
-        class="project-item"
-        :class="{ active: project.id === selectedProjectId }"
-        @click="selectProject(project)"
+        class="project-row"
       >
-        <div class="title">{{ project.name }}</div>
-        <div class="meta">{{ project.description || 'No description' }}</div>
-      </button>
+        <button
+          class="project-item"
+          :class="{ active: project.id === selectedProjectId }"
+          :disabled="deletingProjectId === project.id"
+          @click="selectProject(project)"
+        >
+          <div class="title">{{ project.name }}</div>
+          <div class="meta">{{ project.description || 'No description' }}</div>
+        </button>
+
+        <button
+          class="delete-btn"
+          :disabled="deletingProjectId === project.id"
+          @click="deleteProject(project)"
+        >
+          {{ deletingProjectId === project.id ? 'Deleting...' : 'Delete' }}
+        </button>
+      </div>
     </section>
   </main>
 </template>
@@ -245,18 +297,43 @@ button:disabled {
 
 .project-item {
   width: 100%;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
+  flex: 1;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   text-align: left;
-  margin-top: 8px;
-  padding: 10px;
+  margin-top: 0;
+  padding: 4px 0;
   color: #0f172a;
+  height: auto;
 }
 
 .project-item.active {
-  border-color: #2563eb;
-  background: #eff6ff;
+  color: #2563eb;
+}
+
+.project-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin-top: 8px;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 6px 0;
+}
+
+.delete-btn {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #dc2626;
+  white-space: nowrap;
+  height: auto;
+  padding: 4px 0;
+  transition: color 0.2s ease;
+}
+
+.delete-btn:hover:not(:disabled) {
+  color: #b91c1c;
 }
 
 .title {

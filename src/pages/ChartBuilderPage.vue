@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { chartSpecSchema, type ChartSpec } from "../specs/chartSpec";
 import ChartTypeSelector from "../components/ChartTypeSelector.vue";
 import ChartOptionsPanel from "../components/ChartOptionsPanel.vue";
 import BarBuilderControls from "../components/BarBuilderControls.vue";
 import PieBuilderControls from "../components/PieBuilderControls.vue";
 import MapBuilderControls from "../components/MapBuilderControls.vue";
-import DataBindingPanel from "../components/DataBindingPanel.vue";
 import DatasetUploadPanel from "../components/DatasetUploadPanel.vue";
 import ManualDatasetEditor from "../components/ManualDatasetEditor.vue";
 import ScatterBuilderControls, { type ScatterBuilderConfig } from "../components/ScatterBuilderControls.vue";
@@ -180,6 +179,7 @@ const stackedBarConfig = ref<StackedBarConfig>({
 const projectStore = useProjectStore();
 const responsiveStore = useResponsiveStore();
 const route = useRoute();
+const router = useRouter();
 const showSidebar = ref(true);
 const availableProjects = ref<ProjectRecord[]>([]);
 const availableDatasets = ref<DatasetRecord[]>([]);
@@ -275,6 +275,20 @@ async function applyIncomingDatasetFromRoute(): Promise<void> {
   } finally {
     incomingDatasetLoading.value = false;
     routeAutoLoadApplied.value = true;
+
+    const shouldCleanQuery = !!queryValue(route.query.datasetId);
+    if (shouldCleanQuery) {
+      const cleanedQuery = { ...route.query } as Record<string, unknown>;
+      delete cleanedQuery.datasetId;
+      delete cleanedQuery.projectId;
+      delete cleanedQuery.autoload;
+      delete cleanedQuery.chartType;
+      delete cleanedQuery.xField;
+      delete cleanedQuery.yField;
+      delete cleanedQuery.seriesField;
+
+      router.replace({ query: cleanedQuery });
+    }
   }
 }
 
@@ -1332,17 +1346,6 @@ function toggleSidebar(): void {
                 {{ selectedDatasetName ? `Using dataset: ${selectedDatasetName}` : 'Dataset selection feeds DataJson into the chart preview.' }}
               </p>
 
-              <h3 class="panel__title" style="margin-top: 24px;">Bind data source</h3>
-              <DataBindingPanel
-                :binding="spec.data"
-                :fields="dataFields"
-                @update:binding="updateBinding"
-                @update:encoding="updateEncoding"
-                @update:years="updateYears"
-                @navigate:config="() => { activeStep = 3; }"
-                @preview-refresh="onPreviewRefresh"
-                @open-manual-editor="handleOpenManualDatasetEditor"
-              />
             </div>
 
             <!-- Step 2: Type -->

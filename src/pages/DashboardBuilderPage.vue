@@ -246,10 +246,6 @@ function defaultPage(name = 'Page 1'): DashboardPageState {
   }
 }
 
-function studioStorageKey(): string {
-  return `dashboard-studio:${selectedDashboardId.value || 'none'}`
-}
-
 function snapshot(): StudioSnapshot {
   return {
     pages: pages.value,
@@ -300,7 +296,7 @@ function undo(): void {
 
   redoStack.value.push(JSON.stringify(snapshot()))
   applySnapshot(JSON.parse(prev) as StudioSnapshot)
-  persistStudioToLocal()
+  void persistStudioToApi()
 }
 
 function redo(): void {
@@ -309,7 +305,7 @@ function redo(): void {
 
   undoStack.value.push(JSON.stringify(snapshot()))
   applySnapshot(JSON.parse(next) as StudioSnapshot)
-  persistStudioToLocal()
+  void persistStudioToApi()
 }
 
 function schedulePersistStudio(): void {
@@ -318,23 +314,69 @@ function schedulePersistStudio(): void {
   }
 
   persistTimer = window.setTimeout(() => {
-    persistStudioToLocal()
+    void persistStudioToApi()
   }, 180)
 }
 
-function persistStudioToLocal(): void {
-  if (!selectedDashboardId.value) return
-  localStorage.setItem(studioStorageKey(), JSON.stringify(snapshot()))
+function buildLayoutPayload(next: StudioSnapshot): unknown {
+  return next.pages.flatMap((page) =>
+    page.items.map((item) => ({
+      id: item.id,
+      pageId: page.id,
+      x: item.x,
+      y: item.y,
+      w: item.w,
+      h: item.h,
+    }))
+  )
 }
 
-function loadStudioFromLocal(): boolean {
+function buildComponentsPayload(next: StudioSnapshot): unknown {
+  return next.pages.flatMap((page) =>
+    page.items.map((item) => ({
+      pageId: page.id,
+      ...item,
+    }))
+  )
+}
+
+function buildPageStructurePayload(next: StudioSnapshot): unknown {
+  return next.pages.map((page) => ({
+    id: page.id,
+    name: page.name,
+    itemIds: page.items.map((item) => item.id),
+  }))
+}
+
+async function persistStudioToApi(): Promise<void> {
+  if (!selectedDashboardId.value) {
+    return
+  }
+
+  try {
+    const currentSnapshot = snapshot()
+    await dashboardService.saveDashboardState({
+      dashboardId: selectedDashboardId.value,
+      layout: buildLayoutPayload(currentSnapshot),
+      components: buildComponentsPayload(currentSnapshot),
+      pageStructure: buildPageStructurePayload(currentSnapshot),
+      snapshot: currentSnapshot,
+    })
+  } catch {
+    // Keep editor responsive even when persistence is temporarily unavailable.
+  }
+}
+
+async function loadStudioFromApi(): Promise<boolean> {
   if (!selectedDashboardId.value) return false
 
   try {
-    const raw = localStorage.getItem(studioStorageKey())
-    if (!raw) return false
+    const state = await dashboardService.loadDashboardState(selectedDashboardId.value)
+    if (!state.snapshotJson) {
+      return false
+    }
 
-    const parsed = JSON.parse(raw) as StudioSnapshot
+    const parsed = JSON.parse(state.snapshotJson) as StudioSnapshot
     if (!Array.isArray(parsed.pages) || parsed.pages.length === 0) {
       return false
     }
@@ -606,8 +648,8 @@ async function loadDashboardDetails(dashboardId: string): Promise<void> {
     }]
     activePageId.value = pages.value[0]?.id ?? ''
 
-    if (!loadStudioFromLocal()) {
-      persistStudioToLocal()
+    if (!await loadStudioFromApi()) {
+      await persistStudioToApi()
     }
   } catch {
     pages.value = [defaultPage()]
@@ -935,7 +977,7 @@ async function onLoadLayoutJson(event: Event): Promise<void> {
     const text = await file.text()
     const parsed = JSON.parse(text) as StudioSnapshot
     applySnapshot(parsed)
-    persistStudioToLocal()
+    await persistStudioToApi()
     setMessage('Layout JSON loaded.')
   } catch {
     setMessage('Invalid layout JSON file.')

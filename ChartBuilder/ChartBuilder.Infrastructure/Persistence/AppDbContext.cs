@@ -135,6 +135,10 @@ public sealed class AppDbContext : DbContext
             entity.HasKey(dashboard => dashboard.Id);
             entity.Property(dashboard => dashboard.Name).HasMaxLength(200).IsRequired();
             entity.Property(dashboard => dashboard.UserId).HasMaxLength(450).IsRequired();
+            entity.Property(dashboard => dashboard.LayoutJson).HasColumnType("nvarchar(max)").IsRequired();
+            entity.Property(dashboard => dashboard.ComponentsJson).HasColumnType("nvarchar(max)").IsRequired();
+            entity.Property(dashboard => dashboard.PageStructureJson).HasColumnType("nvarchar(max)").IsRequired();
+            entity.Property(dashboard => dashboard.SnapshotJson).HasColumnType("nvarchar(max)").IsRequired();
             entity.HasIndex(dashboard => dashboard.ProjectId);
             entity.HasIndex(dashboard => dashboard.UpdatedAt);
 

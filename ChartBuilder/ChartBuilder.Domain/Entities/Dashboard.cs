@@ -11,6 +11,10 @@ public sealed class Dashboard : BaseEntity
     public string UserId { get; private set; } = string.Empty;
     public DateTime CreatedAt { get; private set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; private set; } = DateTime.UtcNow;
+    public string LayoutJson { get; private set; } = "{}";
+    public string ComponentsJson { get; private set; } = "[]";
+    public string PageStructureJson { get; private set; } = "[]";
+    public string SnapshotJson { get; private set; } = "{}";
 
     public Project? Project { get; private set; }
     public IReadOnlyCollection<DashboardChart> DashboardCharts => _dashboardCharts;
@@ -37,6 +41,15 @@ public sealed class Dashboard : BaseEntity
     public void AddChart(DashboardChart dashboardChart)
     {
         _dashboardCharts.Add(dashboardChart);
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void UpdateStudioState(string layoutJson, string componentsJson, string pageStructureJson, string snapshotJson)
+    {
+        LayoutJson = string.IsNullOrWhiteSpace(layoutJson) ? "{}" : layoutJson;
+        ComponentsJson = string.IsNullOrWhiteSpace(componentsJson) ? "[]" : componentsJson;
+        PageStructureJson = string.IsNullOrWhiteSpace(pageStructureJson) ? "[]" : pageStructureJson;
+        SnapshotJson = string.IsNullOrWhiteSpace(snapshotJson) ? "{}" : snapshotJson;
         UpdatedAt = DateTime.UtcNow;
     }
 }

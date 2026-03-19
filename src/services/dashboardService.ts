@@ -23,6 +23,23 @@ export type DashboardDetails = DashboardRecord & {
   charts: DashboardChartLayout[]
 }
 
+export type DashboardStudioState = {
+  dashboardId: string
+  layoutJson: string
+  componentsJson: string
+  pageStructureJson: string
+  snapshotJson: string
+  updatedAt: string
+}
+
+export type SaveDashboardStudioStateRequest = {
+  dashboardId: string
+  layout: unknown
+  components: unknown
+  pageStructure: unknown
+  snapshot: unknown
+}
+
 export type UpdateDashboardChartLayoutRequest = {
   id: string
   positionX: number
@@ -60,11 +77,25 @@ export async function addChartToDashboard(payload: AddDashboardChartRequest): Pr
   return response.data
 }
 
+export async function saveDashboardState(payload: SaveDashboardStudioStateRequest): Promise<DashboardStudioState> {
+  const response = await api.post<DashboardStudioState>('/dashboard/save', payload)
+  return response.data
+}
+
+export async function loadDashboardState(dashboardId: string): Promise<DashboardStudioState> {
+  const response = await api.get<DashboardStudioState>('/dashboard/load', {
+    params: { dashboardId },
+  })
+  return response.data
+}
+
 const dashboardService = {
   getDashboardsByProject,
   getDashboard,
   updateChartLayout,
   addChartToDashboard,
+  saveDashboardState,
+  loadDashboardState,
 }
 
 export default dashboardService

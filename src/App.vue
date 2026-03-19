@@ -17,6 +17,7 @@ const responsiveStore = useResponsiveStore()
 const projects = ref<ProjectRecord[]>([])
 const selectedProjectId = ref('')
 const isLoadingProjects = ref(false)
+const PROJECTS_CHANGED_EVENT = 'projects:changed'
 
 const showNav = computed(() => !route.meta.hideNav)
 const userEmail = computed(() => authStore.userEmail)
@@ -103,12 +104,18 @@ function handleLogout(): void {
   router.push('/login')
 }
 
+function handleProjectsChanged(): void {
+  void loadProjects()
+}
+
 onMounted(() => {
   responsiveStore.initialize()
+  window.addEventListener(PROJECTS_CHANGED_EVENT, handleProjectsChanged)
 })
 
 onBeforeUnmount(() => {
   responsiveStore.teardown()
+  window.removeEventListener(PROJECTS_CHANGED_EVENT, handleProjectsChanged)
 })
 
 </script>
@@ -123,7 +130,6 @@ onBeforeUnmount(() => {
           <RouterLink to="/projects" class="nav-link" active-class="active">Projects</RouterLink>
           <RouterLink v-if="hasSelectedProject" to="/charts" class="nav-link" active-class="active">Charts</RouterLink>
           <RouterLink v-if="hasSelectedProject" to="/datasets" class="nav-link" active-class="active">Datasets</RouterLink>
-          <RouterLink v-if="hasSelectedProject" to="/dashboard" class="nav-link" active-class="active">Dashboards</RouterLink>
           <RouterLink v-if="hasSelectedProject" to="/report" class="nav-link" active-class="active">Reports</RouterLink>
           <RouterLink v-if="canAccessAdmin" to="/admin" class="nav-link" active-class="active">Admin</RouterLink>
           </div>

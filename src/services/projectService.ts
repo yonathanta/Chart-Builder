@@ -24,9 +24,14 @@ export async function createProject(data: CreateProjectPayload): Promise<Project
   return response.data
 }
 
+export async function deleteProject(projectId: string): Promise<void> {
+  await api.delete(`/projects/${projectId}`)
+}
+
 const projectService = {
   getProjects,
   createProject,
+  deleteProject,
 }
 
 export default projectService

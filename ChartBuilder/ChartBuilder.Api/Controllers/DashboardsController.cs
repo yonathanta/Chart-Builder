@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using ChartBuilder.Domain.Entities;
 using ChartBuilder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -378,6 +379,91 @@ public sealed class DashboardsController : ControllerBase
         return Ok();
     }
 
+    [HttpPost("/api/dashboard/save")]
+    [HttpPost("/dashboard/save")]
+    public async Task<ActionResult<DashboardStudioStateDto>> SaveStudioState([FromBody] SaveDashboardStudioStateDto request, CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        if (request.DashboardId == Guid.Empty)
+        {
+            return BadRequest(new { message = "DashboardId is required." });
+        }
+
+        var dashboard = await _dbContext.Dashboards
+            .Where(candidate => candidate.Id == request.DashboardId && candidate.Project != null && candidate.Project.UserId == userId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (dashboard is null)
+        {
+            var exists = await _dbContext.Dashboards.AnyAsync(candidate => candidate.Id == request.DashboardId, cancellationToken);
+            if (exists)
+            {
+                return Unauthorized();
+            }
+
+            return NotFound();
+        }
+
+        dashboard.UpdateStudioState(
+            request.Layout.GetRawText(),
+            request.Components.GetRawText(),
+            request.PageStructure.GetRawText(),
+            request.Snapshot.GetRawText());
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new DashboardStudioStateDto(
+            dashboard.Id,
+            dashboard.LayoutJson,
+            dashboard.ComponentsJson,
+            dashboard.PageStructureJson,
+            dashboard.SnapshotJson,
+            dashboard.UpdatedAt));
+    }
+
+    [HttpGet("/api/dashboard/load")]
+    [HttpGet("/dashboard/load")]
+    public async Task<ActionResult<DashboardStudioStateDto>> LoadStudioState([FromQuery] Guid dashboardId, CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        if (dashboardId == Guid.Empty)
+        {
+            return BadRequest(new { message = "dashboardId is required." });
+        }
+
+        var dashboard = await _dbContext.Dashboards
+            .Where(candidate => candidate.Id == dashboardId && candidate.Project != null && candidate.Project.UserId == userId)
+            .Select(candidate => new DashboardStudioStateDto(
+                candidate.Id,
+                candidate.LayoutJson,
+                candidate.ComponentsJson,
+                candidate.PageStructureJson,
+                candidate.SnapshotJson,
+                candidate.UpdatedAt))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (dashboard is null)
+        {
+            var exists = await _dbContext.Dashboards.AnyAsync(candidate => candidate.Id == dashboardId, cancellationToken);
+            if (exists)
+            {
+                return Unauthorized();
+            }
+
+            return NotFound();
+        }
+
+        return Ok(dashboard);
+    }
+
     private static DashboardDto ToDashboardDto(Dashboard dashboard)
         => new(
             dashboard.Id,
@@ -441,4 +527,19 @@ public sealed class DashboardsController : ControllerBase
         int PositionY,
         int Width,
         int Height);
+
+    public sealed record SaveDashboardStudioStateDto(
+        Guid DashboardId,
+        JsonElement Layout,
+        JsonElement Components,
+        JsonElement PageStructure,
+        JsonElement Snapshot);
+
+    public sealed record DashboardStudioStateDto(
+        Guid DashboardId,
+        string LayoutJson,
+        string ComponentsJson,
+        string PageStructureJson,
+        string SnapshotJson,
+        DateTime UpdatedAt);
 }
