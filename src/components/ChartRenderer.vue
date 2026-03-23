@@ -26,12 +26,15 @@ let lineChart: LineChartInstance | null = null
 let areaChart: AreaChartInstance | null = null
 let resizeObserver: ResizeObserver | null = null
 let resizeRaf = 0
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
 let lastWidth = 0
 let lastHeight = 0
 
 function applyAdaptiveSvgTextSizing(svg: SVGSVGElement, width: number, height: number): void {
   const shortest = Math.max(220, Math.min(width, height))
-  const scale = Math.max(0.72, Math.min(1.5, shortest / 360))
+  const areaScale = Math.sqrt((width * height) / 128000)
+  const narrowPenalty = width < 320 ? 0.92 : width < 420 ? 0.96 : 1
+  const scale = Math.max(0.68, Math.min(1.35, (shortest / 360) * areaScale * narrowPenalty))
   const textNodes = svg.querySelectorAll<SVGTextElement>('text')
 
   for (const node of textNodes) {
@@ -73,6 +76,8 @@ function adjustConfigForViewport(type: string, config: Record<string, unknown>, 
       barConfig: {
         ...((next.barConfig as Record<string, unknown> | undefined) ?? {}),
         ...commonAxisPatch,
+        showValues: compact ? false : undefined,
+        labelDistance: compact ? 3 : undefined,
       },
     }
   }
@@ -93,6 +98,7 @@ function adjustConfigForViewport(type: string, config: Record<string, unknown>, 
       stackedBarConfig: {
         ...((next.stackedBarConfig as Record<string, unknown> | undefined) ?? {}),
         showLegend: !compact,
+        showValues: !compact,
       },
     }
   }
@@ -105,6 +111,22 @@ function adjustConfigForViewport(type: string, config: Record<string, unknown>, 
   }
 
   return next
+}
+
+function scheduleRender(force = false): void {
+  if (resizeTimer) {
+    clearTimeout(resizeTimer)
+  }
+
+  resizeTimer = setTimeout(() => {
+    if (resizeRaf) {
+      cancelAnimationFrame(resizeRaf)
+    }
+
+    resizeRaf = requestAnimationFrame(() => {
+      render(force)
+    })
+  }, 80)
 }
 
 async function render(force = false) {
@@ -186,17 +208,26 @@ async function render(force = false) {
 }
 
 onMounted(() => {
-  render()
+  render(true)
 
   if (frameRef.value && typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => {
-      if (resizeRaf) {
-        cancelAnimationFrame(resizeRaf)
+    resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) {
+        return
       }
 
-      resizeRaf = requestAnimationFrame(() => {
-        render()
-      })
+      const width = Math.round(entry.contentRect.width)
+      const height = Math.round(entry.contentRect.height)
+      if (width <= 0 || height <= 0) {
+        return
+      }
+
+      if (Math.abs(width - lastWidth) < 2 && Math.abs(height - lastHeight) < 2) {
+        return
+      }
+
+      scheduleRender()
     })
 
     resizeObserver.observe(frameRef.value)
@@ -204,13 +235,14 @@ onMounted(() => {
 })
 
 watch(() => props.chart, () => {
-  render(true)
+  scheduleRender(true)
 }, { deep: true })
 
 onBeforeUnmount(() => {
   if (lineChart) lineChart.destroy()
   if (areaChart) areaChart.destroy()
   if (resizeObserver) resizeObserver.disconnect()
+  if (resizeTimer) clearTimeout(resizeTimer)
   if (resizeRaf) cancelAnimationFrame(resizeRaf)
 })
 </script>
@@ -228,16 +260,13 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 svg {
   display: block;
   width: 100%;
   height: 100%;
-}
-
-:deep(svg text) {
-  font-size: clamp(10px, 1.1vw, 12px);
+  overflow: visible;
 }
 </style>

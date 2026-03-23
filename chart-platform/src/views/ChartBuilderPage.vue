@@ -49,6 +49,8 @@ const barConfig = ref<BarBuilderConfig>({
   staggerDelay: 30,
   showGridlines: true,
   showValues: true,
+  showXAxisLabels: true,
+  showYAxisLabels: true,
   xLabelOffset: 0,
   xLabelRotation: 0,
   yLabelOffset: 0,

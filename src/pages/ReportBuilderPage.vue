@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import ReportSelectionBar from '../components/report-builder/ReportSelectionBar.vue'
@@ -95,15 +96,18 @@ type ApiChart = {
 }
 
 const REPORT_UI_STATE_KEY = 'report-builder-ui-state-v1'
+const CHART_SYNC_SIGNAL_KEY = 'chartBuilder:lastChartPersist'
 const MM_TO_PX = 3.7795275591
 const A4_WIDTH_PX = 794
 const A4_HEIGHT_PX = 1123
 
 const projectStore = useProjectStore()
 const responsiveStore = useResponsiveStore()
-const initialQuery = new URLSearchParams(window.location.search)
-const initialReportId = initialQuery.get('reportId') ?? ''
-const initialMode = initialQuery.get('mode')
+const route = useRoute()
+const router = useRouter()
+const initialReportId = typeof route.query.reportId === 'string' ? route.query.reportId : ''
+const initialMode = typeof route.query.mode === 'string' ? route.query.mode : ''
+const pendingIncomingChartId = ref(typeof route.query.chartId === 'string' ? route.query.chartId : '')
 
 const projects = ref<ProjectRecord[]>([])
 const reports = ref<ReportRecord[]>([])
@@ -275,6 +279,68 @@ function setMessage(text: string): void {
       message.value = ''
     }
   }, 2600)
+}
+
+type ChartSyncPayload = {
+  projectId?: string
+  chartId?: string
+  action?: 'saved' | 'deleted'
+  timestamp?: number
+}
+
+function parseChartSyncPayload(raw: string | null | undefined): ChartSyncPayload | null {
+  if (!raw) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as ChartSyncPayload
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+async function refreshProjectCharts(reason: string, payload?: ChartSyncPayload): Promise<void> {
+  const projectId = selectedProjectId.value
+  if (!projectId) {
+    return
+  }
+
+  if (payload?.projectId && payload.projectId !== projectId) {
+    return
+  }
+
+  await loadCharts(projectId)
+
+  if (selectedReportId.value) {
+    await loadReportDetails(selectedReportId.value)
+  }
+
+  console.debug('Report builder chart refresh complete', {
+    reason,
+    projectId,
+    selectedReportId: selectedReportId.value,
+    availableChartIds: availableCharts.value.map((chart) => chart.id),
+  })
+}
+
+async function handleChartStorageSync(event: StorageEvent): Promise<void> {
+  if (event.key !== CHART_SYNC_SIGNAL_KEY) {
+    return
+  }
+
+  const payload = parseChartSyncPayload(event.newValue)
+  await refreshProjectCharts('storage-sync', payload ?? undefined)
+}
+
+async function handleChartPersistenceEvent(event: Event): Promise<void> {
+  const payload = (event as CustomEvent<ChartSyncPayload>).detail
+  await refreshProjectCharts('window-event', payload)
+}
+
+async function handleWindowFocus(): Promise<void> {
+  await refreshProjectCharts('window-focus')
 }
 
 function parseJson(value: unknown): unknown {
@@ -592,6 +658,9 @@ async function toRenderableChart(response: ApiChart, fallbackId = ''): Promise<R
   const configRaw = response.configJson ?? response.ConfigJson ?? response.configuration ?? response.Configuration ?? {}
   const styleRaw = response.styleJson ?? response.StyleJson ?? {}
   const parsedConfig = parseJson(configRaw) as {
+    chartState?: {
+      filteredData?: unknown
+    }
     persistedState?: {
       filteredRows?: unknown
       allRows?: unknown
@@ -602,10 +671,13 @@ async function toRenderableChart(response: ApiChart, fallbackId = ''): Promise<R
   const datasetId = String(response.datasetId ?? response.DatasetId ?? '')
   const datasetRaw = response.dataset ?? response.Dataset ?? {}
 
+  const savedChartFilteredRows = parsedConfig?.chartState?.filteredData
   const persistedFilteredRows = parsedConfig?.persistedState?.filteredRows
   const persistedAllRows = parsedConfig?.persistedState?.allRows
 
-  const resolvedDataset = Array.isArray(persistedFilteredRows)
+  const resolvedDataset = Array.isArray(savedChartFilteredRows)
+    ? savedChartFilteredRows
+    : Array.isArray(persistedFilteredRows)
     ? persistedFilteredRows
     : Array.isArray(persistedAllRows)
       ? persistedAllRows
@@ -658,7 +730,11 @@ async function loadProjects(): Promise<void> {
 
   try {
     projects.value = await projectService.getProjects()
-    if (projectStore.currentProject?.id) {
+    const requestedProjectId = typeof route.query.projectId === 'string' ? route.query.projectId : ''
+
+    if (requestedProjectId && projects.value.some((project) => project.id === requestedProjectId)) {
+      selectedProjectId.value = requestedProjectId
+    } else if (projectStore.currentProject?.id) {
       selectedProjectId.value = projectStore.currentProject.id
     } else if (projects.value.length > 0) {
       const firstProject = projects.value[0]
@@ -701,6 +777,12 @@ async function loadCharts(projectId: string): Promise<void> {
         }
       })
     )
+
+    console.debug('Report available charts loaded', {
+      projectId,
+      count: availableCharts.value.length,
+      chartIds: availableCharts.value.map((chart) => chart.id),
+    })
   } catch {
     availableCharts.value = []
     setMessage('Failed to load project charts.')
@@ -750,6 +832,11 @@ async function loadReportDetails(reportId: string): Promise<void> {
     const details = await reportService.getReportById(reportId)
     layoutItems.value = await hydrateLayoutItems(details.charts)
     blocks.value = buildBlocksFromState(reportId, sortedLayoutItems.value)
+    console.debug('Report charts loaded', {
+      reportId,
+      projectId: selectedProjectId.value,
+      chartIds: layoutItems.value.map((item) => item.chartId),
+    })
   } catch {
     layoutItems.value = []
     blocks.value = []
@@ -821,6 +908,26 @@ async function addChart(chartId: string): Promise<void> {
   } finally {
     saving.value = false
   }
+}
+
+async function consumeIncomingChart(): Promise<void> {
+  if (!pendingIncomingChartId.value || !selectedReportId.value) {
+    return
+  }
+
+  const incomingChartId = pendingIncomingChartId.value
+  pendingIncomingChartId.value = ''
+
+  if (selectedProjectId.value) {
+    await loadCharts(selectedProjectId.value)
+  }
+
+  await addChart(incomingChartId)
+
+  const cleanedQuery = { ...route.query }
+  delete cleanedQuery.chartId
+  delete cleanedQuery.projectId
+  await router.replace({ query: cleanedQuery })
 }
 
 function startReportChartDrag(chartId: string, event: DragEvent): void {
@@ -1139,10 +1246,14 @@ function blockStyle(block: ReportBlockItem): Record<string, string> {
 function chartStageStyle(block: ReportBlockItem): Record<string, string> {
   const layout = block.layout
   if (layout?.enabled) {
+    const edgePadding = Math.max(4, Math.min(18, Math.round(Math.min(layout.width, layout.height) * 0.04)))
+
     return {
       width: '100%',
       height: '100%',
       margin: '0',
+      padding: `${edgePadding}px`,
+      boxSizing: 'border-box',
     }
   }
 
@@ -1156,6 +1267,8 @@ function chartStageStyle(block: ReportBlockItem): Record<string, string> {
   return {
     width: `${block.chartOptions?.widthPercent ?? 100}%`,
     height: `${responsiveHeight}px`,
+    padding: '8px',
+    boxSizing: 'border-box',
   }
 }
 
@@ -1693,6 +1806,7 @@ watch(selectedProjectId, async (projectId) => {
 
 watch(selectedReportId, async (reportId) => {
   await loadReportDetails(reportId)
+  await consumeIncomingChart()
 })
 
 watch(
@@ -1745,6 +1859,9 @@ watch(
 )
 
 onMounted(async () => {
+  window.addEventListener('storage', handleChartStorageSync)
+  window.addEventListener('chartBuilder:charts-updated', handleChartPersistenceEvent as EventListener)
+  window.addEventListener('focus', handleWindowFocus)
   window.addEventListener('mousemove', onPointerMove)
   window.addEventListener('mouseup', onPointerUp)
 
@@ -1760,6 +1877,9 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('storage', handleChartStorageSync)
+  window.removeEventListener('chartBuilder:charts-updated', handleChartPersistenceEvent as EventListener)
+  window.removeEventListener('focus', handleWindowFocus)
   window.removeEventListener('mousemove', onPointerMove)
   window.removeEventListener('mouseup', onPointerUp)
 })
@@ -2029,7 +2149,7 @@ onBeforeUnmount(() => {
                       :style="chartStageStyle(block)"
                       @click.stop="activateTransform(block.id)"
                     >
-                      <ChartRenderer :key="`${block.id}-${block.layout?.width ?? 0}-${block.layout?.height ?? 0}`" :chart="chartRendererForBlock(block)!" />
+                      <ChartRenderer :key="`${block.id}-${block.chartRefId ?? 'chart'}`" class="report-chart-renderer" :chart="chartRendererForBlock(block)!" />
                     </div>
                   </template>
                 </template>
@@ -2561,6 +2681,10 @@ onBeforeUnmount(() => {
   padding: 12px;
 }
 
+.report-block--chart {
+  overflow: visible;
+}
+
 .report-block--floating {
   border: none;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
@@ -2649,9 +2773,11 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 8px;
   background: #ffffff;
-  overflow: hidden;
+  overflow: visible;
   margin: 0 auto;
   position: relative;
+  min-width: 0;
+  min-height: 0;
 }
 
 .transform-controls {

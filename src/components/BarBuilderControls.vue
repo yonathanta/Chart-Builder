@@ -9,6 +9,8 @@ export type BarBuilderConfig = {
   staggerDelay: number;
   showGridlines: boolean;
   showValues: boolean;
+  showXAxisLabels: boolean;
+  showYAxisLabels: boolean;
   xLabelOffset: number;
   xLabelRotation: number;
   yLabelOffset: number;
@@ -106,6 +108,16 @@ const showGridlines = computed({
 const showValues = computed({
   get: () => props.config.showValues,
   set: (v: boolean) => emit("update:config", { ...props.config, showValues: v }),
+});
+
+const showXAxisLabels = computed({
+  get: () => props.config.showXAxisLabels ?? true,
+  set: (v: boolean) => emit("update:config", { ...props.config, showXAxisLabels: v }),
+});
+
+const showYAxisLabels = computed({
+  get: () => props.config.showYAxisLabels ?? true,
+  set: (v: boolean) => emit("update:config", { ...props.config, showYAxisLabels: v }),
 });
 
 const xLabelOffset = computed({
@@ -452,6 +464,28 @@ const labelPositionMode = computed({
           @change="showValues = ($event.target as HTMLInputElement).checked"
         />
         <span>Show Label</span>
+      </label>
+    </div>
+
+    <div class="form-field">
+      <label class="checkbox">
+        <input
+          type="checkbox"
+          :checked="showXAxisLabels"
+          @change="showXAxisLabels = ($event.target as HTMLInputElement).checked"
+        />
+        <span>Show X labels</span>
+      </label>
+    </div>
+
+    <div class="form-field">
+      <label class="checkbox">
+        <input
+          type="checkbox"
+          :checked="showYAxisLabels"
+          @change="showYAxisLabels = ($event.target as HTMLInputElement).checked"
+        />
+        <span>Show Y labels</span>
       </label>
     </div>
 

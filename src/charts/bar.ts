@@ -9,6 +9,8 @@ export type BuilderBarConfig = {
   staggerDelay?: number;
   showGridlines?: boolean;
   showValues?: boolean;
+  showXAxisLabels?: boolean;
+  showYAxisLabels?: boolean;
   xLabelOffset?: number;
   xLabelRotation?: number;
   yLabelOffset?: number;
@@ -102,6 +104,8 @@ export function renderBarChart(
     staggerDelay: config.staggerDelay ?? 20,
     showGridlines: config.showGridlines ?? true,
     showValues: config.showValues ?? true,
+    showXAxisLabels: config.showXAxisLabels ?? true,
+    showYAxisLabels: config.showYAxisLabels ?? true,
     xLabelOffset: config.xLabelOffset ?? 0,
     xLabelRotation: config.xLabelRotation ?? 0,
     yLabelOffset: config.yLabelOffset ?? 0,
@@ -190,6 +194,23 @@ export function renderBarChart(
 
   // Dynamically calculate margin.left for horizontal charts to prevent label cropping
   let dynamicMarginLeft = 70;
+  let maxCategoryLabelWidth = 0;
+
+  if (orientation === 'vertical' && categories.length > 0) {
+    const tempText = svg.append('text')
+      .style('visibility', 'hidden')
+      .style('font-size', '10px')
+      .style('font-family', 'sans-serif');
+
+    categories.forEach(cat => {
+      tempText.text(String(cat));
+      const bbox = (tempText.node() as SVGTextElement).getBBox();
+      if (bbox.width > maxCategoryLabelWidth) maxCategoryLabelWidth = bbox.width;
+    });
+
+    tempText.remove();
+  }
+
   if (orientation === 'horizontal') {
     const tempText = svg.append('text')
       .style('visibility', 'hidden')
@@ -204,6 +225,10 @@ export function renderBarChart(
     });
     tempText.remove();
     dynamicMarginLeft = Math.max(70, maxLabelWidth + 20); // Maintain at least 70px, add 20px padding
+  }
+
+  if (!cfg.showYAxisLabels) {
+    dynamicMarginLeft = orientation === 'horizontal' ? 28 : 40;
   }
 
   // Dynamically calculate margin.right to prevent value labels from cropping
@@ -235,7 +260,20 @@ export function renderBarChart(
     }
   }
 
-  const margin = { top: spec.title ? 75 : 60, right: dynamicMarginRight, bottom: 60, left: dynamicMarginLeft };
+  // Increase bottom margin when X labels are rotated so they stay inside the SVG viewport.
+  let dynamicMarginBottom = 60;
+  if (orientation === 'vertical' && maxCategoryLabelWidth > 0) {
+    const angle = Math.abs((cfg.xLabelRotation ?? 0) * (Math.PI / 180));
+    const axisFontSize = 10;
+    const projectedHeight = (Math.sin(angle) * maxCategoryLabelWidth) + (Math.cos(angle) * axisFontSize);
+    const extraOffset = Math.abs(cfg.xLabelOffset ?? 0);
+    dynamicMarginBottom = Math.max(60, Math.ceil(projectedHeight + extraOffset + 20));
+  }
+  if (!cfg.showXAxisLabels) {
+    dynamicMarginBottom = 32;
+  }
+
+  const margin = { top: spec.title ? 75 : 60, right: dynamicMarginRight, bottom: dynamicMarginBottom, left: dynamicMarginLeft };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
 
@@ -426,10 +464,12 @@ export function renderBarChart(
     yAxisLayer.attr('transform', `translate(0,0)`).call(yAxis);
 
     // Align category labels near the bars for horizontal layouts.
-    yAxisLayer.selectAll('.tick text')
-      .attr('text-anchor', cfg.labelAlignment === 'left' ? 'end' : 'start')
-      .attr('dy', cfg.separateLabelLine ? '1.6em' : '0.32em')
-      .attr('x', cfg.labelAlignment === 'left' ? -6 : 6);
+    if (cfg.showYAxisLabels) {
+      yAxisLayer.selectAll('.tick text')
+        .attr('text-anchor', cfg.labelAlignment === 'left' ? 'end' : 'start')
+        .attr('dy', cfg.separateLabelLine ? '1.6em' : '0.32em')
+        .attr('x', cfg.labelAlignment === 'left' ? -6 : 6);
+    }
   }
 
   // Optional flag replacement for category codes
@@ -1035,13 +1075,15 @@ export function renderBarChart(
   const xLabelAnchor = xLabelRotation === 0 ? 'middle' : xLabelRotation > 0 ? 'start' : 'end';
 
   xAxisLayer
-    .selectAll<SVGTextElement, unknown>('text')
+    .selectAll<SVGTextElement, unknown>('.tick text')
+    .style('display', cfg.showXAxisLabels ? null : 'none')
     .attr('dy', `${cfg.xLabelOffset}px`)
     .attr('transform', xLabelRotation ? `rotate(${xLabelRotation})` : null)
     .style('text-anchor', xLabelAnchor);
 
   yAxisLayer
-    .selectAll<SVGTextElement, unknown>('text')
+    .selectAll<SVGTextElement, unknown>('.tick text')
+    .style('display', cfg.showYAxisLabels ? null : 'none')
     .attr('dy', `${cfg.yLabelOffset}px`);
 
   function renderSmallMultiples() {
@@ -1180,13 +1222,15 @@ export function renderBarChart(
         .style('opacity', 0.9);
 
       xLayer
-        .selectAll<SVGTextElement, unknown>('text')
+        .selectAll<SVGTextElement, unknown>('.tick text')
+        .style('display', cfg.showXAxisLabels ? null : 'none')
         .attr('dy', `${cfg.xLabelOffset}px`)
         .attr('transform', xLabelRotation ? `rotate(${xLabelRotation})` : null)
         .style('text-anchor', xLabelAnchor);
 
       yLayer
-        .selectAll<SVGTextElement, unknown>('text')
+        .selectAll<SVGTextElement, unknown>('.tick text')
+        .style('display', cfg.showYAxisLabels ? null : 'none')
         .attr('dy', `${cfg.yLabelOffset}px`);
 
       bars.attr('aria-label', (d: any) => {

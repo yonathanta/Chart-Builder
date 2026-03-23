@@ -113,7 +113,8 @@ public sealed class AuthController : ControllerBase
                         ?? userRoles.FirstOrDefault()
                         ?? UserRole.Viewer.ToString();
 
-                    var identityResponse = BuildAuthResponse(identityUser, role);
+                    var domainUser = await EnsureDomainUserForIdentityAsync(identityUser, role, cancellationToken);
+                    var identityResponse = BuildAuthResponse(identityUser, role, domainUser.Id);
                     return Ok(BuildLoginResponse(identityResponse));
                 }
             }
@@ -146,6 +147,14 @@ public sealed class AuthController : ControllerBase
         catch (UnauthorizedAccessException)
         {
             return Unauthorized(new { error = "Invalid credentials." });
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Unhandled login failure for {Email}.", request.Email);
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "Unable to sign in right now. Please try again."
+            });
         }
     }
 
@@ -204,7 +213,7 @@ public sealed class AuthController : ControllerBase
         };
     }
 
-    private AuthResponseDto BuildAuthResponse(ApplicationUser user, string role)
+    private AuthResponseDto BuildAuthResponse(ApplicationUser user, string role, Guid domainUserId)
     {
         var issuer = _configuration["Jwt:Issuer"] ?? string.Empty;
         var audience = _configuration["Jwt:Audience"] ?? string.Empty;
@@ -215,19 +224,15 @@ public sealed class AuthController : ControllerBase
             throw new InvalidOperationException("JWT configuration is missing. Set Jwt:Issuer, Jwt:Audience, and Jwt:SecretKey.");
         }
 
-        if (!Guid.TryParse(user.Id, out var userId))
-        {
-            throw new InvalidOperationException("User id format is invalid.");
-        }
-
         var expiresAt = DateTime.UtcNow.AddHours(1);
         var claims = new List<Claim>
         {
-            new(JwtRegisteredClaimNames.Sub, user.Id),
-            new(ClaimTypes.NameIdentifier, user.Id),
+            new(JwtRegisteredClaimNames.Sub, domainUserId.ToString()),
+            new(ClaimTypes.NameIdentifier, domainUserId.ToString()),
             new(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
             new(ClaimTypes.Role, role),
-            new("role", role)
+            new("role", role),
+            new("identityUserId", user.Id)
         };
 
         var credentials = new SigningCredentials(
@@ -244,9 +249,75 @@ public sealed class AuthController : ControllerBase
         return new AuthResponseDto
         {
             Token = new JwtSecurityTokenHandler().WriteToken(token),
-            UserId = userId,
+            UserId = domainUserId,
             Email = user.Email ?? string.Empty,
             Role = role
         };
+    }
+
+    private async Task<User> EnsureDomainUserForIdentityAsync(
+        ApplicationUser identityUser,
+        string role,
+        CancellationToken cancellationToken)
+    {
+        var normalizedEmail = (identityUser.Email ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalizedEmail))
+        {
+            throw new InvalidOperationException("Identity user is missing an email address.");
+        }
+
+        var domainUser = await _dbContext.Users
+            .FirstOrDefaultAsync(user => user.Email.ToLower() == normalizedEmail, cancellationToken);
+
+        var mappedRole = TryMapDomainRole(role, out var parsedRole)
+            ? parsedRole
+            : UserRole.Viewer;
+
+        if (domainUser is null)
+        {
+            var fullName = $"{identityUser.FirstName} {identityUser.LastName}".Trim();
+            domainUser = new User(
+                id: Guid.NewGuid(),
+                email: normalizedEmail,
+                passwordHash: string.Empty,
+                fullName: string.IsNullOrWhiteSpace(fullName) ? normalizedEmail : fullName,
+                role: mappedRole,
+                isActive: true);
+
+            await _dbContext.Users.AddAsync(domainUser, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return domainUser;
+        }
+
+        var hasChanges = false;
+        if (!domainUser.IsActive)
+        {
+            domainUser.Activate();
+            hasChanges = true;
+        }
+
+        if (domainUser.Role != mappedRole)
+        {
+            domainUser.UpdateRole(mappedRole);
+            hasChanges = true;
+        }
+
+        if (hasChanges)
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return domainUser;
+    }
+
+    private static bool TryMapDomainRole(string role, out UserRole mappedRole)
+    {
+        if (Enum.TryParse<UserRole>(role, ignoreCase: true, out mappedRole))
+        {
+            return true;
+        }
+
+        mappedRole = UserRole.Viewer;
+        return false;
     }
 }

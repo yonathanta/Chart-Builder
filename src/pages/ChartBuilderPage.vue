@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
 import { chartSpecSchema, type ChartSpec } from "../specs/chartSpec";
 import ChartTypeSelector from "../components/ChartTypeSelector.vue";
 import ChartOptionsPanel from "../components/ChartOptionsPanel.vue";
@@ -19,8 +19,10 @@ import { exportService, type ExportFormat } from "../export/exportService";
 import { useProjectStore } from "../stores/projectStore";
 import { useResponsiveStore } from "../stores/responsiveStore";
 import chartService from "../services/chartService";
+import type { ChartRecord } from "../services/chartService";
 import projectService, { type ProjectRecord } from "../services/projectService";
 import datasetService, { type DatasetRecord } from "../services/datasetService";
+import { useChartBuilderStore } from "../stores/chartBuilderStore";
 import type { LineChartConfig } from "../charts/line";
 import type { AreaChartConfig } from "../charts/areaV7";
 import type { PieConfig } from "../charts/pie";
@@ -43,7 +45,7 @@ const spec = ref<ChartSpec>({
   data: {
     provider: "json",
     kind: "json",
-    query: { source: "/data/sample-bar.json" },
+    query: { source: "" },
     syncMode: "live",
   },
   encoding: {
@@ -74,6 +76,8 @@ const barConfig = ref<BarBuilderConfig>({
   staggerDelay: 30,
   showGridlines: true,
   showValues: true,
+  showXAxisLabels: true,
+  showYAxisLabels: true,
   xLabelOffset: 0,
   xLabelRotation: 0,
   yLabelOffset: 0,
@@ -177,6 +181,7 @@ const stackedBarConfig = ref<StackedBarConfig>({
 });
 
 const projectStore = useProjectStore();
+const chartBuilderStore = useChartBuilderStore();
 const responsiveStore = useResponsiveStore();
 const route = useRoute();
 const router = useRouter();
@@ -194,10 +199,61 @@ const saveSuccessMessage = ref<string | null>(null);
 const saveErrorMessage = ref<string | null>(null);
 const datasetBlobUrl = ref<string | null>(null);
 const currentProjectId = computed(() => projectStore.currentProject?.id ?? "");
+const savedCharts = ref<ChartRecord[]>([]);
+const currentChartId = ref<string>("");
+const isDirty = ref(false);
+const isRestoringChart = ref(false);
+const isPersistingChart = ref(false);
+const hasInitializedDraft = ref(false);
+const lastSavedFingerprint = ref<string>("");
 const GLOBAL_SELECTED_DATASET_KEY = "selectedDatasetId";
 const DATASET_SYNC_SIGNAL_KEY = "chartBuilder:lastDatasetUpdate";
+const LAST_SAVED_CHART_KEY_PREFIX = "chartBuilder:lastSavedChart:";
+const CHART_SYNC_SIGNAL_KEY = "chartBuilder:lastChartPersist";
+const MAX_FILTERED_SNAPSHOT_ROWS = 2000;
+const MAX_INLINE_SOURCE_ROWS = 2000;
 const routeAutoLoadApplied = ref(false);
 const incomingDatasetLoading = ref(false);
+
+type SavedChartState = {
+  id: string;
+  projectId: string;
+  name: string;
+  datasetId: string;
+  filteredData: Record<string, unknown>[];
+  previewImageDataUrl?: string;
+  config: {
+    chartType: string;
+    xAxis: string;
+    yAxis: string;
+    groupBy?: string;
+    aggregation?: string;
+  };
+  style: {
+    colors: string[];
+    fontSize: number;
+    fontFamily?: string;
+    legendPosition: string;
+    grid: boolean;
+    background: string;
+    layout?: ChartSpec["layout"];
+  };
+  animation: {
+    enabled: boolean;
+    duration: number;
+    easing: string;
+  };
+  filters: {
+    appliedFilters: Array<{ column: string; values: string[] }>;
+  };
+  createdAt: string;
+  updatedAt: string;
+  snapshotMeta?: {
+    totalFilteredRows: number;
+    storedFilteredRows: number;
+    truncated: boolean;
+  };
+};
 
 function queryValue(input: unknown): string {
   if (Array.isArray(input)) {
@@ -205,6 +261,154 @@ function queryValue(input: unknown): string {
   }
 
   return typeof input === 'string' ? input : '';
+}
+
+function getPendingRestoreChartId(projectId?: string): string {
+  const routeChartId = queryValue(route.query.chartId);
+  if (routeChartId) {
+    return routeChartId;
+  }
+
+  const draftChartId = chartBuilderStore.draft?.chartId ?? "";
+  const draftProjectId = chartBuilderStore.draft?.projectId ?? "";
+  if (draftChartId && (!projectId || !draftProjectId || draftProjectId === projectId)) {
+    return draftChartId;
+  }
+
+  return "";
+}
+
+function toStableJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, (_key, nestedValue) => {
+      if (nestedValue && typeof nestedValue === "object" && !Array.isArray(nestedValue)) {
+        const sortedEntries = Object.entries(nestedValue as Record<string, unknown>)
+          .sort(([left], [right]) => left.localeCompare(right));
+        return Object.fromEntries(sortedEntries);
+      }
+      return nestedValue;
+    });
+  } catch {
+    return "";
+  }
+}
+
+function toBase64Utf8(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
+}
+
+function buildInlineJsonDataUrl(rows: Record<string, unknown>[]): string {
+  const json = JSON.stringify(rows);
+  return `data:application/json;charset=utf-8,${encodeURIComponent(json)}`;
+}
+
+function sanitizeSpecForSave(
+  inputSpec: ChartSpec,
+  fallbackRows: Record<string, unknown>[],
+): ChartSpec {
+  const cloned = JSON.parse(JSON.stringify(inputSpec)) as ChartSpec;
+  const source = cloned?.data?.query?.source;
+
+  if (typeof source === "string" && source.startsWith("blob:")) {
+    const safeRows = fallbackRows.length > 0 ? fallbackRows : [];
+    cloned.data = {
+      ...cloned.data,
+      provider: "json",
+      kind: "json",
+      query: {
+        ...cloned.data.query,
+        source: buildInlineJsonDataUrl(safeRows),
+      },
+    };
+  }
+
+  return cloned;
+}
+
+function capturePreviewImageDataUrl(): string | undefined {
+  try {
+    const svg = previewRef.value?.getSvgEl?.();
+    if (!svg) {
+      return undefined;
+    }
+
+    const serialized = new XMLSerializer().serializeToString(svg);
+    return `data:image/svg+xml;base64,${toBase64Utf8(serialized)}`;
+  } catch (error) {
+    console.warn("Preview image capture failed:", error);
+    return undefined;
+  }
+}
+
+function getLastSavedChartStorageKey(projectId: string): string {
+  return `${LAST_SAVED_CHART_KEY_PREFIX}${projectId}`;
+}
+
+function rememberLastSavedChart(projectId: string, chartId: string): void {
+  if (!projectId || !chartId) {
+    return;
+  }
+
+  localStorage.setItem(getLastSavedChartStorageKey(projectId), chartId);
+}
+
+function readLastSavedChart(projectId: string): string {
+  if (!projectId) {
+    return "";
+  }
+
+  return localStorage.getItem(getLastSavedChartStorageKey(projectId)) ?? "";
+}
+
+function forgetLastSavedChart(projectId: string, chartId?: string): void {
+  if (!projectId) {
+    return;
+  }
+
+  const storageKey = getLastSavedChartStorageKey(projectId);
+  if (!chartId) {
+    localStorage.removeItem(storageKey);
+    return;
+  }
+
+  const remembered = localStorage.getItem(storageKey);
+  if (remembered === chartId) {
+    localStorage.removeItem(storageKey);
+  }
+}
+
+function clearPersistedChartReference(chartId: string, projectId?: string): void {
+  if (!chartId) {
+    return;
+  }
+
+  if (currentChartId.value === chartId) {
+    currentChartId.value = "";
+  }
+
+  if (spec.value.id === chartId) {
+    spec.value = {
+      ...spec.value,
+      id: "",
+    };
+  }
+
+  if (projectId) {
+    forgetLastSavedChart(projectId, chartId);
+  }
+
+  if (chartBuilderStore.draft?.chartId === chartId) {
+    chartBuilderStore.setDraftChartId(null);
+  }
 }
 
 function isSupportedChartType(type: string): type is ChartSpec['type'] {
@@ -289,6 +493,96 @@ async function applyIncomingDatasetFromRoute(): Promise<void> {
 
       router.replace({ query: cleanedQuery });
     }
+  }
+}
+
+async function applyIncomingChartFromRoute(): Promise<void> {
+  const chartId = queryValue(route.query.chartId);
+  if (!chartId) {
+    return;
+  }
+
+  const incomingProjectId = queryValue(route.query.projectId);
+  if (incomingProjectId && incomingProjectId !== currentProjectId.value) {
+    const targetProject = availableProjects.value.find((project) => project.id === incomingProjectId);
+    if (targetProject) {
+      projectStore.setCurrentProject({ id: targetProject.id, name: targetProject.name });
+      await loadDatasetsForProject(targetProject.id, { skipAutoSelect: true });
+      await loadSavedCharts(targetProject.id);
+    }
+  }
+
+  if (currentChartId.value === chartId) {
+    return;
+  }
+
+  await restoreChartById(chartId);
+
+  const cleanedQuery = { ...route.query } as Record<string, unknown>;
+  delete cleanedQuery.chartId;
+  await router.replace({ query: cleanedQuery });
+}
+
+async function restoreDraftFromStore(): Promise<void> {
+  if (hasInitializedDraft.value) {
+    return;
+  }
+
+  const draft = chartBuilderStore.draft;
+  if (!draft || !draft.spec || !draft.projectId) {
+    hasInitializedDraft.value = true;
+    return;
+  }
+
+  const targetProject = availableProjects.value.find((project) => project.id === draft.projectId);
+  if (targetProject) {
+    projectStore.setCurrentProject({ id: targetProject.id, name: targetProject.name });
+    await loadDatasetsForProject(targetProject.id, { skipAutoSelect: true });
+    await loadSavedCharts(targetProject.id);
+  }
+
+  const draftChartId = draft.chartId ?? "";
+  const hasSavedChart = draftChartId
+    ? savedCharts.value.some((chart) => chart.id === draftChartId)
+    : false;
+
+  if (draftChartId && hasSavedChart) {
+    await restoreChartById(draftChartId);
+    hasInitializedDraft.value = true;
+    return;
+  }
+
+  isRestoringChart.value = true;
+  try {
+    spec.value = sanitizeSpecForSave(draft.spec as ChartSpec, []);
+
+    const configs = draft.chartConfigs;
+    if (configs && typeof configs === "object") {
+      applyChartConfig(configs);
+    }
+
+    if (draftChartId && !hasSavedChart) {
+      clearPersistedChartReference(draftChartId, draft.projectId);
+    } else {
+      currentChartId.value = draftChartId;
+    }
+
+    if (draft.datasetId) {
+      await selectDatasetById(draft.datasetId);
+    }
+
+    refreshPreview();
+    lastSavedFingerprint.value = toStableJson({
+      projectId: currentProjectId.value,
+      datasetId: selectedDatasetId.value,
+      chartId: currentChartId.value,
+      spec: spec.value,
+      chartConfigs: configs ?? {},
+    });
+    isDirty.value = false;
+  } finally {
+    isRestoringChart.value = false;
+    hasInitializedDraft.value = true;
   }
 }
 
@@ -378,6 +672,342 @@ function getApiErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function getApiErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  const maybeAxios = error as {
+    response?: {
+      status?: number;
+    };
+  };
+
+  return typeof maybeAxios.response?.status === "number"
+    ? maybeAxios.response.status
+    : undefined;
+}
+
+function isMissingChartError(error: unknown): boolean {
+  return getApiErrorStatus(error) === 404
+    && getApiErrorMessage(error, "").toLowerCase().includes("chart not found");
+}
+
+function broadcastChartPersistence(projectId: string, chartId: string, action: "saved" | "deleted"): void {
+  if (!projectId) {
+    return;
+  }
+
+  const payload = {
+    projectId,
+    chartId,
+    action,
+    timestamp: Date.now(),
+  };
+
+  localStorage.setItem(CHART_SYNC_SIGNAL_KEY, JSON.stringify(payload));
+  window.dispatchEvent(new CustomEvent("chartBuilder:charts-updated", { detail: payload }));
+}
+
+async function applySavedFilters(filters?: Array<{ column: string; values: string[] }>): Promise<void> {
+  const normalizedFilters = Array.isArray(filters)
+    ? filters
+        .filter((filter) => filter && typeof filter.column === "string")
+        .map((filter) => ({
+          column: filter.column,
+          values: Array.isArray(filter.values) ? filter.values.map((value) => String(value)) : [],
+        }))
+    : [];
+
+  await nextTick();
+  const preview = previewRef.value as {
+    setValueFilters?: (nextFilters: Array<{ column: string; values: string[] }>) => void;
+  } | null;
+  preview?.setValueFilters?.(normalizedFilters);
+}
+
+function getChartConfigPayload(datasetId: string, previewImageDataUrl?: string) {
+  const previewRows = getPreviewRows();
+  const previewFilteredRows = getPreviewFilteredRows();
+  const activeFilters = sidebarActiveFilters.value.map((filter) => ({
+    column: filter.column,
+    values: [...filter.values],
+  }));
+  const filteredSnapshot = previewFilteredRows.slice(0, MAX_FILTERED_SNAPSHOT_ROWS);
+  const persistedRows = previewRows.length > 0 ? previewRows : filteredSnapshot;
+  const sanitizedSpec = sanitizeSpecForSave(spec.value, persistedRows);
+
+  const primaryAnimationDuration = [
+    (barConfig.value as { animationDuration?: number }).animationDuration,
+    (lineConfig.value as { animationDuration?: number }).animationDuration,
+    (areaConfig.value as { animationDuration?: number }).animationDuration,
+    (scatterConfig.value as { animationDuration?: number }).animationDuration,
+    (pieConfig.value as { animationDuration?: number }).animationDuration,
+    (mapConfig.value as { animationDuration?: number }).animationDuration,
+    (stackedBarConfig.value as { animationDuration?: number }).animationDuration,
+  ].find((value) => typeof value === "number" && value >= 0) ?? 0;
+
+  const chartState: SavedChartState = {
+    id: currentChartId.value || spec.value.id || crypto.randomUUID(),
+    projectId: currentProjectId.value,
+    name: spec.value.title?.trim() || "Untitled Chart",
+    datasetId,
+    filteredData: filteredSnapshot,
+    ...(previewImageDataUrl ? { previewImageDataUrl } : {}),
+    config: {
+      chartType: sanitizedSpec.type,
+      xAxis: sanitizedSpec.encoding.category.field,
+      yAxis: sanitizedSpec.encoding.value.field,
+      groupBy: sanitizedSpec.encoding.series?.field,
+      aggregation: sanitizedSpec.encoding.value.aggregate,
+    },
+    style: {
+      colors: Array.isArray(sanitizedSpec.style?.palette) ? sanitizedSpec.style.palette : [],
+      fontSize: (barConfig.value as { labelFontSize?: number }).labelFontSize ?? 12,
+      fontFamily: sanitizedSpec.style?.fontFamily,
+      legendPosition: "right",
+      grid: (barConfig.value as { showGridlines?: boolean }).showGridlines
+        ?? (scatterConfig.value as { showGridlines?: boolean }).showGridlines
+        ?? true,
+      background: (sanitizedSpec.style?.background as string | undefined) ?? "#ffffff",
+      layout: sanitizedSpec.layout,
+    },
+    animation: {
+      enabled: primaryAnimationDuration > 0,
+      duration: primaryAnimationDuration,
+      easing: "easeOutCubic",
+    },
+    filters: {
+      appliedFilters: activeFilters,
+    },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    snapshotMeta: {
+      totalFilteredRows: previewFilteredRows.length,
+      storedFilteredRows: filteredSnapshot.length,
+      truncated: previewFilteredRows.length > filteredSnapshot.length,
+    },
+  };
+
+  return {
+    ...sanitizedSpec,
+    barConfig: barConfig.value,
+    lineConfig: lineConfig.value,
+    areaConfig: areaConfig.value,
+    scatterConfig: scatterConfig.value,
+    pieConfig: pieConfig.value,
+    mapConfig: mapConfig.value,
+    bubbleConfig: bubbleConfig.value,
+    dotDonutConfig: dotDonutConfig.value,
+    orbitDonutConfig: orbitDonutConfig.value,
+    stackedBarConfig: stackedBarConfig.value,
+    stackedAreaConfig: stackedAreaConfig.value,
+    chartState,
+    persistedState: {
+      datasetId,
+      datasetName: selectedDatasetName.value,
+      allRows: previewRows.slice(0, MAX_FILTERED_SNAPSHOT_ROWS),
+      filteredRows: filteredSnapshot,
+      activeFilters,
+      totalRows: previewRows.length,
+      filteredRowCount: previewFilteredRows.length,
+      snapshotTruncated: previewFilteredRows.length > filteredSnapshot.length,
+      ...(previewImageDataUrl ? { previewImageDataUrl } : {}),
+    },
+  };
+}
+
+function applyChartConfig(config: Record<string, unknown>): void {
+  const nextSpec = (config as { type?: ChartSpec["type"] }) ?? {};
+
+  if (nextSpec && typeof nextSpec === "object") {
+    spec.value = {
+      ...spec.value,
+      ...(nextSpec as ChartSpec),
+    };
+  }
+
+  if (config.barConfig && typeof config.barConfig === "object") {
+    barConfig.value = { ...barConfig.value, ...(config.barConfig as typeof barConfig.value) };
+  }
+  if (config.lineConfig && typeof config.lineConfig === "object") {
+    lineConfig.value = { ...lineConfig.value, ...(config.lineConfig as Record<string, unknown>) };
+  }
+  if (config.areaConfig && typeof config.areaConfig === "object") {
+    areaConfig.value = { ...areaConfig.value, ...(config.areaConfig as Record<string, unknown>) };
+  }
+  if (config.scatterConfig && typeof config.scatterConfig === "object") {
+    scatterConfig.value = { ...scatterConfig.value, ...(config.scatterConfig as ScatterBuilderConfig) };
+  }
+  if (config.pieConfig && typeof config.pieConfig === "object") {
+    pieConfig.value = { ...pieConfig.value, ...(config.pieConfig as PieConfig) };
+  }
+  if (config.mapConfig && typeof config.mapConfig === "object") {
+    mapConfig.value = { ...mapConfig.value, ...(config.mapConfig as MapConfig) };
+  }
+  if (config.bubbleConfig && typeof config.bubbleConfig === "object") {
+    bubbleConfig.value = { ...bubbleConfig.value, ...(config.bubbleConfig as BubbleChartConfig) };
+  }
+  if (config.dotDonutConfig && typeof config.dotDonutConfig === "object") {
+    dotDonutConfig.value = { ...dotDonutConfig.value, ...(config.dotDonutConfig as DotDonutConfig) };
+  }
+  if (config.orbitDonutConfig && typeof config.orbitDonutConfig === "object") {
+    orbitDonutConfig.value = { ...orbitDonutConfig.value, ...(config.orbitDonutConfig as OrbitDonutConfig) };
+  }
+  if (config.stackedBarConfig && typeof config.stackedBarConfig === "object") {
+    stackedBarConfig.value = { ...stackedBarConfig.value, ...(config.stackedBarConfig as StackedBarConfig) };
+  }
+  if (config.stackedAreaConfig && typeof config.stackedAreaConfig === "object") {
+    stackedAreaConfig.value = { ...stackedAreaConfig.value, ...(config.stackedAreaConfig as Record<string, unknown>) };
+  }
+}
+
+async function loadSavedCharts(projectId: string): Promise<void> {
+  if (!projectId) {
+    savedCharts.value = [];
+    return;
+  }
+
+  try {
+    savedCharts.value = await chartService.getCharts(projectId);
+  } catch {
+    savedCharts.value = [];
+  }
+}
+
+async function restoreChartById(chartId: string): Promise<void> {
+  if (!chartId) {
+    return;
+  }
+
+  isRestoringChart.value = true;
+  saveErrorMessage.value = null;
+  saveSuccessMessage.value = "Restoring chart...";
+
+  try {
+    const chart = await chartService.getChart(chartId);
+    const parsedConfig = JSON.parse(chart.configJson) as Record<string, unknown>;
+    const parsedStyle = JSON.parse(chart.styleJson) as Record<string, unknown>;
+    const savedState = (parsedConfig.chartState as SavedChartState | undefined) ?? undefined;
+    const persistedState = (parsedConfig.persistedState as {
+      allRows?: Record<string, unknown>[];
+      filteredRows?: Record<string, unknown>[];
+      activeFilters?: Array<{ column: string; values: string[] }>;
+    } | undefined) ?? undefined;
+    const restoreRows = savedState?.filteredData
+      ?? persistedState?.allRows
+      ?? persistedState?.filteredRows
+      ?? [];
+    const sanitizedSpec = sanitizeSpecForSave(parsedConfig as unknown as ChartSpec, restoreRows);
+    const normalizedConfig = {
+      ...parsedConfig,
+      ...sanitizedSpec,
+    };
+
+    currentChartId.value = chart.id;
+    applyChartConfig(normalizedConfig);
+
+    const savedConfig = savedState?.config;
+    if (savedConfig?.xAxis && savedConfig?.yAxis) {
+      spec.value = {
+        ...spec.value,
+        encoding: {
+          category: { field: savedConfig.xAxis },
+          value: {
+            field: savedConfig.yAxis,
+            aggregate: savedConfig.aggregation as ChartSpec["encoding"]["value"]["aggregate"],
+          },
+          ...(savedConfig.groupBy ? { series: { field: savedConfig.groupBy } } : {}),
+        },
+      };
+    }
+
+    spec.value = {
+      ...spec.value,
+      id: chart.id,
+      title: chart.name,
+      type: chart.chartType as ChartSpec["type"],
+      style: {
+        ...(spec.value.style ?? {}),
+        ...(parsedStyle ?? {}),
+      },
+    };
+
+    let datasetLoaded = false;
+    if (chart.datasetId) {
+      try {
+        await selectDatasetById(chart.datasetId);
+        datasetLoaded = true;
+      } catch {
+        datasetLoaded = false;
+      }
+    }
+
+    if (!datasetLoaded) {
+      const snapshotRows = savedState?.filteredData
+        ?? (parsedConfig.persistedState as { filteredRows?: Record<string, unknown>[] } | undefined)?.filteredRows
+        ?? [];
+
+      if (Array.isArray(snapshotRows) && snapshotRows.length > 0) {
+        applyRowsToSpec(snapshotRows);
+        saveSuccessMessage.value = "Dataset missing. Restored chart from saved filtered snapshot.";
+      }
+    }
+
+    await applySavedFilters(savedState?.filters?.appliedFilters ?? persistedState?.activeFilters ?? []);
+
+    refreshPreview();
+    lastSavedFingerprint.value = toStableJson({
+      projectId: currentProjectId.value,
+      datasetId: selectedDatasetId.value,
+      chartId: currentChartId.value,
+      spec: spec.value,
+      chartConfigs: {
+        barConfig: barConfig.value,
+        lineConfig: lineConfig.value,
+        areaConfig: areaConfig.value,
+        scatterConfig: scatterConfig.value,
+        pieConfig: pieConfig.value,
+        mapConfig: mapConfig.value,
+        bubbleConfig: bubbleConfig.value,
+        dotDonutConfig: dotDonutConfig.value,
+        orbitDonutConfig: orbitDonutConfig.value,
+        stackedBarConfig: stackedBarConfig.value,
+        stackedAreaConfig: stackedAreaConfig.value,
+      },
+    });
+    isDirty.value = false;
+    saveSuccessMessage.value = "Chart restored successfully.";
+  } catch (error) {
+    if (isMissingChartError(error)) {
+      clearPersistedChartReference(chartId, currentProjectId.value);
+    }
+    saveSuccessMessage.value = null;
+    saveErrorMessage.value = getApiErrorMessage(error, "Failed to restore chart.");
+  } finally {
+    isRestoringChart.value = false;
+  }
+}
+
+async function restoreLastSavedChartForProject(projectId: string): Promise<void> {
+  if (!projectId || currentChartId.value || queryValue(route.query.chartId)) {
+    return;
+  }
+
+  const lastSavedChartId = readLastSavedChart(projectId);
+  if (!lastSavedChartId) {
+    return;
+  }
+
+  const exists = savedCharts.value.some((chart) => chart.id === lastSavedChartId);
+  if (!exists) {
+    clearPersistedChartReference(lastSavedChartId, projectId);
+    return;
+  }
+
+  await restoreChartById(lastSavedChartId);
+}
+
 async function loadAvailableProjects(): Promise<void> {
   const projects = await projectService.getProjects();
   availableProjects.value = projects;
@@ -427,10 +1057,10 @@ function toRowArray(value: unknown): Record<string, unknown>[] {
 }
 
 function applyRowsToSpec(rows: Record<string, unknown>[]): void {
-  const blob = new Blob([JSON.stringify(rows)], { type: "application/json" });
-  const nextBlobUrl = URL.createObjectURL(blob);
   disposeDatasetBlobUrl();
-  datasetBlobUrl.value = nextBlobUrl;
+  datasetBlobUrl.value = null;
+  const inlineRows = rows.slice(0, MAX_INLINE_SOURCE_ROWS);
+  const nextSource = buildInlineJsonDataUrl(inlineRows);
 
   const keys = Object.keys(rows[0] ?? {});
   const currentCategory = spec.value.encoding.category.field;
@@ -449,7 +1079,7 @@ function applyRowsToSpec(rows: Record<string, unknown>[]): void {
       kind: "json",
       query: {
         ...spec.value.data.query,
-        source: nextBlobUrl,
+        source: nextSource,
       },
     },
     encoding: {
@@ -488,7 +1118,7 @@ function getPreviewFilteredRows(): Record<string, unknown>[] {
   return [];
 }
 
-async function loadDatasetsForProject(projectId: string): Promise<void> {
+async function loadDatasetsForProject(projectId: string, options?: { skipAutoSelect?: boolean }): Promise<void> {
   if (!projectId) {
     availableDatasets.value = [];
     selectedDatasetId.value = "";
@@ -507,6 +1137,10 @@ async function loadDatasetsForProject(projectId: string): Promise<void> {
       selectedDatasetId.value = "";
       selectedDatasetName.value = "";
       disposeDatasetBlobUrl();
+    }
+
+    if (options?.skipAutoSelect || Boolean(getPendingRestoreChartId(projectId))) {
+      return;
     }
 
     const persistedDatasetId = getPersistedDataset(projectId);
@@ -675,16 +1309,18 @@ async function handleCreateProject() {
   }
 }
 
-async function saveChart() {
-  if (isSavingChart.value) {
-    return;
+async function saveChartCore(options?: { silent?: boolean }): Promise<ChartRecord | null> {
+  if (isSavingChart.value || isRestoringChart.value) {
+    return null;
   }
 
-  const currentProjectId = projectStore.currentProject?.id;
-  if (!currentProjectId) {
-    saveSuccessMessage.value = null;
-    saveErrorMessage.value = "Please select or create a project first.";
-    return;
+  const activeProjectId = projectStore.currentProject?.id;
+  if (!activeProjectId) {
+    if (!options?.silent) {
+      saveSuccessMessage.value = null;
+      saveErrorMessage.value = "Please select or create a project first.";
+    }
+    return null;
   }
 
   let datasetId = selectedDatasetId.value;
@@ -694,7 +1330,7 @@ async function saveChart() {
   }
 
   if (!datasetId) {
-    const persistedDatasetId = getPersistedDataset(currentProjectId);
+    const persistedDatasetId = getPersistedDataset(activeProjectId);
     const globalDatasetId = getGlobalSelectedDataset();
     const fallbackDatasetId = persistedDatasetId || globalDatasetId;
 
@@ -705,65 +1341,189 @@ async function saveChart() {
   }
 
   if (!datasetId) {
-    saveSuccessMessage.value = null;
-    saveErrorMessage.value = "Please select a dataset before saving.";
-    return;
+    if (!options?.silent) {
+      saveSuccessMessage.value = null;
+      saveErrorMessage.value = "Please select a dataset before saving.";
+    }
+    return null;
   }
 
   isSavingChart.value = true;
-  saveSuccessMessage.value = null;
-  saveErrorMessage.value = null;
+  isPersistingChart.value = true;
+  if (!options?.silent) {
+    saveSuccessMessage.value = null;
+    saveErrorMessage.value = null;
+  }
 
   try {
     const chartName = spec.value.title?.trim() || "Untitled Chart";
     const selectedType = spec.value.type;
-    const previewRows = getPreviewRows();
-    const previewFilteredRows = getPreviewFilteredRows();
-    const activeFilters = sidebarActiveFilters.value.map((filter) => ({
-      column: filter.column,
-      values: [...filter.values],
-    }));
-
-    const chartConfig = {
-      ...spec.value,
-      barConfig: barConfig.value,
-      lineConfig: lineConfig.value,
-      areaConfig: areaConfig.value,
-      scatterConfig: scatterConfig.value,
-      pieConfig: pieConfig.value,
-      mapConfig: mapConfig.value,
-      bubbleConfig: bubbleConfig.value,
-      dotDonutConfig: dotDonutConfig.value,
-      orbitDonutConfig: orbitDonutConfig.value,
-      stackedBarConfig: stackedBarConfig.value,
-      stackedAreaConfig: stackedAreaConfig.value,
-      persistedState: {
-        datasetId,
-        datasetName: selectedDatasetName.value,
-        allRows: previewRows,
-        filteredRows: previewFilteredRows,
-        activeFilters,
-        totalRows: previewRows.length,
-        filteredRowCount: previewFilteredRows.length,
-      },
-    };
+    const previewImageDataUrl = capturePreviewImageDataUrl();
+    const chartConfig = getChartConfigPayload(datasetId, previewImageDataUrl);
     const chartStyle = { ...spec.value.style };
-
-    await chartService.createChart({
+    const savePayload = {
       name: chartName,
       chartType: selectedType,
       configJson: JSON.stringify(chartConfig),
       styleJson: JSON.stringify(chartStyle),
       datasetId,
-      projectId: currentProjectId,
+      projectId: activeProjectId,
+    };
+
+    console.debug("Preparing chart save payload", {
+      chart: {
+        id: currentChartId.value || spec.value.id || null,
+        name: chartName,
+        chartType: selectedType,
+        projectId: activeProjectId,
+        datasetId,
+        config: chartConfig,
+        style: chartStyle,
+      },
+      hasPreviewImage: Boolean(previewImageDataUrl),
+      filteredRowsSaved: (chartConfig.chartState as SavedChartState | undefined)?.filteredData?.length ?? 0,
     });
 
-    saveSuccessMessage.value = "Chart saved successfully.";
+    let saved: ChartRecord;
+    if (currentChartId.value) {
+      try {
+        saved = await chartService.updateChart(currentChartId.value, savePayload);
+      } catch (error) {
+        if (!isMissingChartError(error)) {
+          throw error;
+        }
+
+        console.warn("Current chart no longer exists. Creating a new saved chart.", {
+          chartId: currentChartId.value,
+          projectId: activeProjectId,
+        });
+
+        clearPersistedChartReference(currentChartId.value, activeProjectId);
+        saved = await chartService.createChart(savePayload);
+      }
+    } else {
+      saved = await chartService.createChart(savePayload);
+    }
+
+    currentChartId.value = saved.id;
+    spec.value = { ...spec.value, id: saved.id };
+    lastSavedFingerprint.value = toStableJson({
+      projectId: activeProjectId,
+      datasetId,
+      chartId: saved.id,
+      spec: spec.value,
+      chartConfigs: {
+        barConfig: barConfig.value,
+        lineConfig: lineConfig.value,
+        areaConfig: areaConfig.value,
+        scatterConfig: scatterConfig.value,
+        pieConfig: pieConfig.value,
+        mapConfig: mapConfig.value,
+        bubbleConfig: bubbleConfig.value,
+        dotDonutConfig: dotDonutConfig.value,
+        orbitDonutConfig: orbitDonutConfig.value,
+        stackedBarConfig: stackedBarConfig.value,
+        stackedAreaConfig: stackedAreaConfig.value,
+      },
+    });
+    rememberLastSavedChart(activeProjectId, saved.id);
+    chartBuilderStore.setDraft({
+      chartId: saved.id,
+      projectId: activeProjectId,
+      datasetId,
+      spec: sanitizeSpecForSave(spec.value, getPreviewRows()),
+      chartConfigs: {
+        barConfig: barConfig.value,
+        lineConfig: lineConfig.value,
+        areaConfig: areaConfig.value,
+        scatterConfig: scatterConfig.value,
+        pieConfig: pieConfig.value,
+        mapConfig: mapConfig.value,
+        bubbleConfig: bubbleConfig.value,
+        dotDonutConfig: dotDonutConfig.value,
+        orbitDonutConfig: orbitDonutConfig.value,
+        stackedBarConfig: stackedBarConfig.value,
+        stackedAreaConfig: stackedAreaConfig.value,
+      },
+    });
+    isDirty.value = false;
+
+    await loadSavedCharts(activeProjectId);
+    broadcastChartPersistence(activeProjectId, saved.id, "saved");
+
+    if (!options?.silent) {
+      saveSuccessMessage.value = `Chart \"${saved.name}\" saved successfully.`;
+    }
+
+    console.debug("Chart saved", {
+      chartId: saved.id,
+      projectId: activeProjectId,
+      datasetId,
+      updatedAt: saved.updatedAt,
+    });
+
+    return saved;
   } catch (error) {
-    console.error("Save chart failed:", error);
-    saveErrorMessage.value = getApiErrorMessage(error, "Failed to save chart.");
+    if (!options?.silent) {
+      console.error("Save chart failed:", error);
+      saveErrorMessage.value = getApiErrorMessage(error, "Failed to save chart.");
+    }
+
+    return null;
   } finally {
+    isPersistingChart.value = false;
     isSavingChart.value = false;
+  }
+}
+
+async function saveChart(): Promise<void> {
+  await saveChartCore({ silent: false });
+}
+
+async function addToReport(): Promise<void> {
+  const saved = await saveChartCore({ silent: false });
+  if (!saved) {
+    return;
+  }
+
+  await router.push({
+    path: "/report",
+    query: {
+      chartId: saved.id,
+      projectId: currentProjectId.value,
+    },
+  });
+}
+
+async function handleEditSavedChart(chartId: string): Promise<void> {
+  const targetQuery = {
+    ...route.query,
+    chartId,
+  };
+
+  await router.replace({ query: targetQuery });
+  await restoreChartById(chartId);
+}
+
+async function handleDeleteSavedChart(chartId: string): Promise<void> {
+  const target = savedCharts.value.find((chart) => chart.id === chartId);
+  const confirmed = window.confirm(`Delete chart "${target?.name ?? "Untitled chart"}"?`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    await chartService.deleteChart(chartId);
+    clearPersistedChartReference(chartId, currentProjectId.value);
+    if (currentChartId.value === chartId) {
+      currentChartId.value = "";
+      isDirty.value = false;
+    }
+    await loadSavedCharts(currentProjectId.value);
+    broadcastChartPersistence(currentProjectId.value, chartId, "deleted");
+    saveSuccessMessage.value = "Chart deleted.";
+  } catch (error) {
+    saveErrorMessage.value = getApiErrorMessage(error, "Failed to delete chart.");
   }
 }
 
@@ -833,35 +1593,61 @@ async function handleWindowFocus(): Promise<void> {
   await loadDatasetsForProject(currentProjectId.value);
 }
 
+function handleBeforeUnload(event: BeforeUnloadEvent): void {
+  if (!isDirty.value) {
+    return;
+  }
+
+  event.preventDefault();
+  event.returnValue = "You have unsaved changes. Save before leaving?";
+}
+
 onMounted(async () => {
   document.addEventListener('click', handleDocClick, true);
   window.addEventListener('storage', handleDatasetStorageSync);
   window.addEventListener('focus', handleWindowFocus);
+  window.addEventListener('beforeunload', handleBeforeUnload);
 
   try {
     await loadAvailableProjects();
-    await loadDatasetsForProject(currentProjectId.value);
-    await applyIncomingDatasetFromRoute();
+    await loadDatasetsForProject(currentProjectId.value, { skipAutoSelect: Boolean(getPendingRestoreChartId(currentProjectId.value)) });
+    await loadSavedCharts(currentProjectId.value);
+    if (queryValue(route.query.chartId)) {
+      await applyIncomingChartFromRoute();
+    } else {
+      await restoreDraftFromStore();
+      await applyIncomingDatasetFromRoute();
+      await restoreLastSavedChartForProject(currentProjectId.value);
+    }
   } catch {
     availableProjects.value = [];
     availableDatasets.value = [];
+    savedCharts.value = [];
   }
 });
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleDocClick, true);
   window.removeEventListener('storage', handleDatasetStorageSync);
   window.removeEventListener('focus', handleWindowFocus);
+  window.removeEventListener('beforeunload', handleBeforeUnload);
   disposeDatasetBlobUrl();
 });
 
 watch(
   () => currentProjectId.value,
   async (projectId) => {
-    await loadDatasetsForProject(projectId);
+    await loadDatasetsForProject(projectId, { skipAutoSelect: Boolean(getPendingRestoreChartId(projectId)) });
+    await loadSavedCharts(projectId);
 
     if (!routeAutoLoadApplied.value && queryValue(route.query.datasetId)) {
       await applyIncomingDatasetFromRoute();
     }
+
+    if (queryValue(route.query.chartId)) {
+      await applyIncomingChartFromRoute();
+    }
+
+    await restoreLastSavedChartForProject(projectId);
   }
 );
 
@@ -891,6 +1677,58 @@ watch(
   { deep: true, immediate: true }
 );
 
+const persistenceSnapshot = computed(() => ({
+  projectId: currentProjectId.value,
+  datasetId: selectedDatasetId.value,
+  chartId: currentChartId.value,
+  spec: spec.value,
+  chartConfigs: {
+    barConfig: barConfig.value,
+    lineConfig: lineConfig.value,
+    areaConfig: areaConfig.value,
+    scatterConfig: scatterConfig.value,
+    pieConfig: pieConfig.value,
+    mapConfig: mapConfig.value,
+    bubbleConfig: bubbleConfig.value,
+    dotDonutConfig: dotDonutConfig.value,
+    orbitDonutConfig: orbitDonutConfig.value,
+    stackedBarConfig: stackedBarConfig.value,
+    stackedAreaConfig: stackedAreaConfig.value,
+  },
+}));
+
+watch(
+  persistenceSnapshot,
+  (snapshot) => {
+    const nextFingerprint = toStableJson(snapshot);
+
+    if (isRestoringChart.value || isPersistingChart.value) {
+      return;
+    }
+
+    isDirty.value = nextFingerprint !== lastSavedFingerprint.value;
+  },
+  { deep: true }
+);
+
+onBeforeRouteLeave(async () => {
+  if (!isDirty.value) {
+    return true;
+  }
+
+  const shouldSave = window.confirm("You have unsaved changes. Save before leaving?");
+  if (shouldSave) {
+    const saved = await saveChartCore({ silent: false });
+    if (saved) {
+      return true;
+    }
+
+    return window.confirm("Save failed. Leave this page and discard unsaved changes?");
+  }
+
+  return true;
+});
+
 function updateType(type: ChartSpec["type"]) {
   // When switching to certain chart types, suggest sensible default layout presets.
   if (type === 'orbitDonut') {
@@ -901,7 +1739,6 @@ function updateType(type: ChartSpec["type"]) {
     spec.value = { 
       ...spec.value, 
       type, 
-      data: { ...spec.value.data, query: { source: "/data/sample-scatter.json" } },
       encoding: { 
         category: { field: "gdpPerCapita", label: "GDP Per Capita" }, 
         value: { field: "lifeExpectancy", label: "Life Expectancy", aggregate: "none" },
@@ -1118,7 +1955,61 @@ async function handleExport(format: ExportFormat) {
       await downloadBlob(blob, `${baseName}.pdf`);
     } else if (format === "html") {
       if (!svg) throw new Error("No SVG to export");
-      const blob = await exportService.exportHTML(svg, spec.value);
+      const filteredData = getPreviewFilteredRows();
+      const animationDuration = [
+        (barConfig.value as { animationDuration?: number }).animationDuration,
+        (lineConfig.value as { animationDuration?: number }).animationDuration,
+        (areaConfig.value as { animationDuration?: number }).animationDuration,
+        (scatterConfig.value as { animationDuration?: number }).animationDuration,
+        (pieConfig.value as { animationDuration?: number }).animationDuration,
+        (mapConfig.value as { animationDuration?: number }).animationDuration,
+        (stackedBarConfig.value as { animationDuration?: number }).animationDuration,
+      ].find((value) => typeof value === "number" && value >= 0) ?? 0;
+
+      const blob = await exportService.exportHTML(
+        svg,
+        spec.value,
+        {
+          data: filteredData,
+          config: {
+            type: spec.value.type,
+            axes: spec.value.encoding,
+            layout: spec.value.layout,
+            mappings: spec.value.encoding,
+            title: spec.value.title,
+          },
+          style: {
+            ...(spec.value.style ?? {}),
+            chartConfigs: {
+              barConfig: barConfig.value,
+              lineConfig: lineConfig.value,
+              areaConfig: areaConfig.value,
+              scatterConfig: scatterConfig.value,
+              pieConfig: pieConfig.value,
+              mapConfig: mapConfig.value,
+              bubbleConfig: bubbleConfig.value,
+              dotDonutConfig: dotDonutConfig.value,
+              orbitDonutConfig: orbitDonutConfig.value,
+              stackedBarConfig: stackedBarConfig.value,
+              stackedAreaConfig: stackedAreaConfig.value,
+            },
+          },
+          animation: {
+            enabled: animationDuration > 0,
+            duration: animationDuration,
+            easing: "easeOutCubic",
+          },
+          metadata: {
+            title: spec.value.title,
+            source: selectedDatasetName.value || selectedDatasetId.value,
+            exportedAt: new Date().toISOString(),
+            chartId: currentChartId.value || spec.value.id,
+            projectId: currentProjectId.value,
+            datasetId: selectedDatasetId.value,
+            filters: sidebarActiveFilters.value,
+          },
+        },
+      );
       await downloadBlob(blob, `${baseName}.html`);
     } else if (format === "spec-json") {
       const blob = await exportService.exportSpec(spec.value);
@@ -1164,11 +2055,9 @@ async function handleLoadProject(event: Event) {
         ? project.data
         : [];
 
-    // If data is embedded, create a new blob URL and update the source
+    // If data is embedded, convert to an inline JSON data URL that survives reloads.
     if (embeddedData.length > 0) {
-      const textJson = JSON.stringify(embeddedData);
-      const blobUrl = URL.createObjectURL(new Blob([textJson], { type: "application/json" }));
-      spec.value.data.query.source = blobUrl;
+      spec.value.data.query.source = buildInlineJsonDataUrl(embeddedData);
     }
 
     if (typeof project.selectedDatasetId === "string" && project.selectedDatasetId.length > 0) {
@@ -1217,10 +2106,13 @@ function toggleSidebar(): void {
           {{ showSidebar ? 'Hide Controls' : 'Show Controls' }}
         </button>
 
-        <button class="btn btn--primary" :disabled="isSavingChart" @click="saveChart">
-          {{ isSavingChart ? 'Saving...' : 'Save to Project' }}
+        <button class="btn btn--primary" :disabled="isSavingChart || isRestoringChart" @click="saveChart">
+          {{ isSavingChart ? 'Saving...' : 'Save Chart' }}
         </button>
-        <p v-if="incomingDatasetLoading" class="status-text">Preparing dataset and mapping...</p>
+        <button class="btn btn--outline" :disabled="isSavingChart || isRestoringChart" @click="addToReport">
+          Add to Report
+        </button>
+        <p v-if="incomingDatasetLoading || isRestoringChart" class="status-text">Preparing dataset and mapping...</p>
         <p v-if="saveSuccessMessage" class="status-text">{{ saveSuccessMessage }}</p>
         <p v-else-if="saveErrorMessage" class="alert-text">{{ saveErrorMessage }}</p>
         <input type="file" ref="projectInputRef" style="display:none" accept="application/json" @change="handleLoadProject" />
@@ -1345,6 +2237,22 @@ function toggleSidebar(): void {
               <p class="muted" style="margin-top:6px;">
                 {{ selectedDatasetName ? `Using dataset: ${selectedDatasetName}` : 'Dataset selection feeds DataJson into the chart preview.' }}
               </p>
+
+              <h3 class="panel__title" style="margin-top: 20px;">Saved Charts</h3>
+              <div class="saved-chart-list">
+                <p v-if="savedCharts.length === 0" class="muted">No saved charts yet for this project.</p>
+                <div v-for="chart in savedCharts" :key="chart.id" class="saved-chart-item">
+                  <div class="saved-chart-preview">{{ chart.chartType.slice(0, 3).toUpperCase() }}</div>
+                  <div class="saved-chart-meta">
+                    <strong>{{ chart.name }}</strong>
+                    <span>{{ chart.chartType }}</span>
+                  </div>
+                  <div class="saved-chart-actions">
+                    <button class="pill" @click="handleEditSavedChart(chart.id)">Edit</button>
+                    <button class="pill pill--danger" @click="handleDeleteSavedChart(chart.id)">Delete</button>
+                  </div>
+                </div>
+              </div>
 
             </div>
 
@@ -1547,7 +2455,7 @@ function toggleSidebar(): void {
   font-size: 12px;
   color: #0ea5e9;
   margin: 0;
-  display: none;
+  display: block;
 }
 .alert-text {
   font-size: 12px;
@@ -1607,6 +2515,68 @@ function toggleSidebar(): void {
 .dropdown-item:hover { background:#f8fafc }
 .item-icon { width:28px; display:inline-flex; align-items:center; justify-content:center; color:#6b7280 }
 .item-label { flex:1; color:#111827 }
+
+.saved-chart-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.saved-chart-item {
+  display: grid;
+  grid-template-columns: 46px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fff;
+}
+
+.saved-chart-preview {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.saved-chart-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.saved-chart-meta strong {
+  font-size: 13px;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-chart-meta span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.saved-chart-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.pill--danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fff5f5;
+}
 
 .icon-btn {
   background: #ffffff;

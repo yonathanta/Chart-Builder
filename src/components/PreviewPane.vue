@@ -198,6 +198,32 @@ function clearValueFilter(col?: string) {
   if (!col) openFilterCol.value = null;
 }
 
+function setValueFilters(filters: Array<{ column: string; values: string[] }>): void {
+  Object.keys(valueFilterSelections).forEach((key) => {
+    valueFilterSelections[key] = null;
+  });
+
+  for (const filter of filters) {
+    if (!filter.column) {
+      continue;
+    }
+
+    const normalizedValues = Array.isArray(filter.values)
+      ? filter.values.map((value) => String(value))
+      : [];
+
+    valueFilterSelections[filter.column] = normalizedValues.length > 0
+      ? new Set(normalizedValues)
+      : null;
+  }
+
+  openFilterCol.value = null;
+
+  if (rows.value.length > 0) {
+    renderWithCurrentRows();
+  }
+}
+
 function isColFiltered(col: string) {
   return !!valueFilterSelections[col] && (valueFilterSelections[col] as Set<string>).size >= 0;
 }
@@ -653,6 +679,7 @@ defineExpose({
   activeFilters,
   totalFiltered,
   clearValueFilter,
+  setValueFilters,
   getSvgEl: () => {
     if (props.spec.type === 'line' || props.spec.type === 'area') {
       return frameRef.value?.querySelector('svg') as SVGSVGElement | null;

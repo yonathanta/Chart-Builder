@@ -4,6 +4,7 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 const api = axios.create({
   baseURL: apiBaseUrl,
+  timeout: 30000,
 });
 
 function isAuthPublicEndpoint(url?: string): boolean {

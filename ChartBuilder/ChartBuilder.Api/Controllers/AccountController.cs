@@ -4,6 +4,7 @@ using ChartBuilder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace ChartBuilder.Api.Controllers;
 
@@ -87,22 +88,25 @@ public sealed class AccountController : ControllerBase
             });
         }
 
-        if (Guid.TryParse(user.Id, out var domainUserId))
-        {
-            var domainUserExists = await _dbContext.Users.FindAsync(domainUserId);
-            if (domainUserExists is null)
-            {
-                var domainUser = new User(
-                    id: domainUserId,
-                    email: normalizedEmail,
-                    passwordHash: string.Empty,
-                    fullName: $"{request.FirstName.Trim()} {request.LastName.Trim()}".Trim(),
-                    role: UserRole.Viewer,
-                    isActive: true);
+        var domainUser = await _dbContext.Users
+            .FirstOrDefaultAsync(candidate => candidate.Email.ToLower() == normalizedEmail);
 
-                await _dbContext.Users.AddAsync(domainUser);
-                await _dbContext.SaveChangesAsync();
-            }
+        if (domainUser is null)
+        {
+            var domainUserId = Guid.TryParse(user.Id, out var parsedDomainUserId)
+                ? parsedDomainUserId
+                : Guid.NewGuid();
+
+            domainUser = new User(
+                id: domainUserId,
+                email: normalizedEmail,
+                passwordHash: string.Empty,
+                fullName: $"{request.FirstName.Trim()} {request.LastName.Trim()}".Trim(),
+                role: UserRole.Viewer,
+                isActive: true);
+
+            await _dbContext.Users.AddAsync(domainUser);
+            await _dbContext.SaveChangesAsync();
         }
 
         return Ok(new
