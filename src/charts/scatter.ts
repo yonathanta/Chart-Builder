@@ -1,5 +1,6 @@
 import * as d3 from 'd3';
 import type { ChartSpec } from '../specs/chartSpec';
+import { createNumberFormatter, normalizeNumberFormat, type NumberFormatOption } from '../utils/numberFormat';
 
 export interface ScatterConfig {
     animationDuration?: number;
@@ -7,6 +8,7 @@ export interface ScatterConfig {
     showLegend?: boolean;
     pointRadius?: number;
     showGridlines?: boolean;
+    numberFormat?: NumberFormatOption;
 }
 
 export function renderScatterPlot(
@@ -20,8 +22,10 @@ export function renderScatterPlot(
         showTooltip = true,
         showLegend = true,
         pointRadius = 5,
-        showGridlines = true
+        showGridlines = true,
+        numberFormat = 'default'
     } = config;
+    const formatNumber = createNumberFormatter(normalizeNumberFormat(numberFormat));
 
     const xKey = spec.encoding.x?.field ?? spec.encoding.category.field;
     const yKey = spec.encoding.y?.field ?? spec.encoding.value.field;
@@ -157,10 +161,10 @@ export function renderScatterPlot(
 
     g.append("g")
         .attr("transform", `translate(0,${innerHeight})`)
-        .call(d3.axisBottom(x));
+        .call(d3.axisBottom(x).tickFormat((d: any) => formatNumber(d) as any));
 
     g.append("g")
-        .call(d3.axisLeft(y));
+        .call(d3.axisLeft(y).tickFormat((d: any) => formatNumber(d) as any));
 
     // 4. Points
     const points = g.selectAll(".point")
@@ -199,9 +203,9 @@ export function renderScatterPlot(
                 .style("opacity", 1)
                 .html(`
                     <strong>${seriesKey ? d[seriesKey] : 'Point'}</strong><br>
-                    ${xKey}: ${d[xKey]}<br>
-                    ${yKey}: ${d[yKey]}
-                    ${sizeKey ? `<br>${sizeKey}: ${d[sizeKey]}` : ''}
+                    ${xKey}: ${formatNumber(d[xKey])}<br>
+                    ${yKey}: ${formatNumber(d[yKey])}
+                    ${sizeKey ? `<br>${sizeKey}: ${formatNumber(d[sizeKey])}` : ''}
                 `)
                 .style("left", (event.pageX + 15) + "px")
                 .style("top", (event.pageY - 28) + "px");

@@ -33,6 +33,20 @@ const backgroundPresets = [
   "#111827",
 ];
 
+const numberFormatOptions = [
+  { value: 'default', label: 'Default' },
+  { value: 'integer', label: 'Integer' },
+  { value: '2-decimal', label: '2 Decimal' },
+  { value: '3-decimal', label: '3 Decimal' },
+  { value: 'thousands', label: 'Thousands (K)' },
+  { value: 'millions', label: 'Millions (M)' },
+  { value: 'billions', label: 'Billions (B)' },
+  { value: 'trillions', label: 'Trillions (T)' },
+  { value: 'percent', label: 'Percent' },
+  { value: 'scientific', label: 'Scientific' },
+  { value: 'auto', label: 'Auto' },
+];
+
 function updateLayout(key: keyof Layout, value: unknown) {
   emit("update:layout", { [key]: value } as Partial<Layout>);
 }
@@ -81,6 +95,15 @@ function updateStyle(key: keyof Style, value: unknown) {
         :value="layout?.height ?? ''"
         @input="updateLayout('height', Number(($event.target as HTMLInputElement).value) || undefined)"
       />
+    </label>
+
+    <label class="form-field">
+      <span>Number format</span>
+      <select
+        :value="style?.numberFormat ?? 'default'"
+        @change="updateStyle('numberFormat', ($event.target as HTMLSelectElement).value)">
+        <option v-for="opt in numberFormatOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+      </select>
     </label>
 
     <div class="form-field" style="grid-column: 1 / -1;">

@@ -11,6 +11,7 @@ import { renderAfricaMap, type MapConfig } from "../charts/map";
 import { renderBubbleChart, type BubbleChartConfig } from "../charts/bubble";
 import { renderStackedBarChart, type StackedBarConfig } from "../charts/stackedBar";
 import { renderOrbitDonutChart, type OrbitDonutConfig } from "../charts/orbitDonut";
+import { createNumberFormatter, normalizeNumberFormat, type NumberFormatOption } from "../utils/numberFormat";
 
 const props = defineProps<{
   spec: ChartSpec;
@@ -93,6 +94,10 @@ function updateRenderSize(): void {
   }
 
   renderSize.value = { width, height };
+}
+
+function resolveNumberFormat(): NumberFormatOption {
+  return normalizeNumberFormat(props.spec.style?.numberFormat ?? props.barConfig?.numberFormat ?? 'default');
 }
 
 function scheduleResponsiveRender(): void {
@@ -305,13 +310,16 @@ async function loadAndRender() {
       if (seriesField && props.selectedYears && props.selectedYears.length) {
         renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
       }
-      renderBarChart(svg, props.spec, renderRows, { ...props.barConfig, numberFormat: props.barConfig?.numberFormat ?? '~s' });
+      const numberFormat = resolveNumberFormat();
+      renderBarChart(svg, props.spec, renderRows, { ...props.barConfig, numberFormat });
       status.value = "Rendered bar chart";
     } else if (props.spec.type === "line") {
       // Hide the bar SVG and render line into the frame container
       svg.style.display = "none";
       if (!frameRef.value) throw new Error("No frame container for line chart");
 
+      const numberFormat = resolveNumberFormat();
+      const formatNumber = createNumberFormatter(numberFormat);
       // Build a config mapping from spec when possible; allow overrides from lineConfig
       const xKey = props.spec.encoding.category.field;
       const yKey = props.spec.encoding.value.field;
@@ -332,13 +340,13 @@ async function loadAndRender() {
         showYAxis: props.lineConfig?.axisConfig?.showYAxis ?? true,
         xTicks: 6,
         yTicks: 5,
-        yTickFormat: '~s',
+        yTickFormat: (value: unknown) => formatNumber(value),
         showGrid: props.lineConfig?.axisConfig?.gridEnabled ?? true,
         tooltip: props.lineConfig?.interactionConfig?.tooltipEnabled ?? true,
         tooltipFormat: (d: any) => {
           const val = d[yKey];
           const series = seriesField ? d[seriesField] : undefined;
-          const parts = [series !== undefined ? `<div><strong>${String(series)}</strong></div>` : '', `<div>Value: ${val}</div>`];
+          const parts = [series !== undefined ? `<div><strong>${String(series)}</strong></div>` : '', `<div>Value: ${formatNumber(val)}</div>`];
           return parts.join('');
         },
         showPoints: props.lineConfig?.pointStyle?.showPoints ?? true,
@@ -356,6 +364,8 @@ async function loadAndRender() {
       svg.style.display = "none";
       if (!frameRef.value) throw new Error("No frame container for area chart");
 
+      const numberFormat = resolveNumberFormat();
+      const formatNumber = createNumberFormatter(numberFormat);
       const xKey = props.spec.encoding.category.field;
       const yKey = props.spec.encoding.value.field;
       const cfg: any = {
@@ -380,8 +390,14 @@ async function loadAndRender() {
         showYAxis: props.areaConfig?.axisConfig?.showYAxis ?? true,
         xTicks: 6,
         yTicks: 5,
+        yTickFormat: (value: unknown) => formatNumber(value),
         showGrid: props.areaConfig?.axisConfig?.gridEnabled ?? true,
         tooltip: props.areaConfig?.interactionConfig?.tooltipEnabled ?? true,
+        tooltipFormat: (d: any) => {
+          const xValue = d?.[xKey] ?? '';
+          const yValue = d?.[yKey];
+          return `<div><strong>${String(xValue)}</strong></div><div>${formatNumber(yValue)}</div>`;
+        },
         showPoints: true,
         pointRadius: 3,
         pointColor: '#1d4ed8',
@@ -407,11 +423,17 @@ async function loadAndRender() {
       status.value = "Rendered dot donut chart";
     } else if (props.spec.type === "pie") {
       svg.style.display = "block";
-      renderPieDonutChart(svg, props.spec, filteredRows.value, props.pieConfig);
+      renderPieDonutChart(svg, props.spec, filteredRows.value, {
+        ...(props.pieConfig ?? {}),
+        numberFormat: resolveNumberFormat(),
+      });
       status.value = "Rendered pie chart";
     } else if (props.spec.type === "scatter") {
       svg.style.display = "block";
-      renderScatterPlot(svg, props.spec, filteredRows.value, props.scatterConfig);
+      renderScatterPlot(svg, props.spec, filteredRows.value, {
+        ...(props.scatterConfig ?? {}),
+        numberFormat: resolveNumberFormat(),
+      });
       status.value = "Rendered scatter plot";
     } else if (props.spec.type === "map") {
       svg.style.display = "block";
@@ -419,11 +441,17 @@ async function loadAndRender() {
       status.value = "Rendered map";
     } else if (props.spec.type === "bubble") {
       svg.style.display = "block";
-      renderBubbleChart(svg, props.spec, filteredRows.value, props.bubbleConfig);
+      renderBubbleChart(svg, props.spec, filteredRows.value, {
+        ...(props.bubbleConfig ?? {}),
+        numberFormat: resolveNumberFormat(),
+      });
       status.value = "Rendered bubble chart";
     } else if (props.spec.type === "stackedBar") {
       svg.style.display = "block";
-      renderStackedBarChart(svg, props.spec, filteredRows.value, props.stackedBarConfig);
+      renderStackedBarChart(svg, props.spec, filteredRows.value, {
+        ...(props.stackedBarConfig ?? {}),
+        numberFormat: resolveNumberFormat(),
+      });
       status.value = "Rendered stacked bar chart";
     } else if (props.spec.type === "orbitDonut") {
       svg.style.display = "block";
@@ -520,6 +548,70 @@ watch(
   { deep: true }
 );
 
+watch(
+  () => props.mapConfig,
+  () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
+watch(
+  () => props.pieConfig,
+  () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
+watch(
+  () => props.scatterConfig,
+  () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
+watch(
+  () => props.bubbleConfig,
+  () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
+watch(
+  () => props.stackedBarConfig,
+  () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
+watch(
+  () => props.dotDonutConfig,
+  () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
+watch(
+  () => props.orbitDonutConfig,
+  () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
+watch(
+  () => props.stackedAreaConfig,
+  () => {
+    renderWithCurrentRows();
+  },
+  { deep: true }
+);
+
 // Only re-fetch when the bound data source changes
 watch(
   () => props.spec.data?.query?.source,
@@ -559,11 +651,14 @@ function renderWithCurrentRows() {
     if (seriesField && props.selectedYears && props.selectedYears.length) {
       renderRows = renderRows.filter((r: any) => props.selectedYears!.includes(String(r[seriesField])));
     }
-    renderBarChart(svgRef.value, props.spec, renderRows, { ...props.barConfig, numberFormat: props.barConfig?.numberFormat ?? '~s' });
+    const numberFormat = resolveNumberFormat();
+    renderBarChart(svgRef.value, props.spec, renderRows, { ...props.barConfig, numberFormat });
   } else if (props.spec.type === "line" && frameRef.value) {
     if (lineChart) { lineChart.destroy(); lineChart = null; }
     const xKey = props.spec.encoding.category.field;
     const yKey = props.spec.encoding.value.field;
+    const numberFormat = resolveNumberFormat();
+    const formatNumber = createNumberFormatter(numberFormat);
     const cfg: LineChartConfig = {
       xKey,
       yKey,
@@ -581,7 +676,7 @@ function renderWithCurrentRows() {
       xTicks: props.lineConfig?.xTicks ?? 6,
       yTicks: props.lineConfig?.yTicks ?? 5,
       xTickFormat: props.lineConfig?.xTickFormat,
-      yTickFormat: props.lineConfig?.yTickFormat ?? '~s',
+      yTickFormat: props.lineConfig?.yTickFormat ?? ((value: unknown) => formatNumber(value)),
       showGrid: props.lineConfig?.showGrid ?? true,
       tooltip: props.lineConfig?.tooltip ?? true,
       showPoints: props.lineConfig?.showPoints ?? true,
@@ -599,6 +694,8 @@ function renderWithCurrentRows() {
     lineChart = createLineChart(frameRef.value, lineRows, cfg);
   } else if (props.spec.type === "area" && frameRef.value) {
     if (areaChart) { areaChart.destroy(); areaChart = null; }
+    const numberFormat = resolveNumberFormat();
+    const formatNumber = createNumberFormatter(numberFormat);
     const xKey = props.spec.encoding.category.field;
     const yKey = props.spec.encoding.value.field;
     const cfg: AreaChartConfig = {
@@ -627,7 +724,7 @@ function renderWithCurrentRows() {
       xTicks: props.areaConfig?.xTicks ?? 6,
       yTicks: props.areaConfig?.yTicks ?? 5,
       xTickFormat: props.areaConfig?.xTickFormat,
-      yTickFormat: props.areaConfig?.yTickFormat ?? '~s',
+      yTickFormat: props.areaConfig?.yTickFormat ?? ((value: unknown) => formatNumber(value)),
       axisColor: props.areaConfig?.axisColor ?? '#cbd5e1',
       showGrid: props.areaConfig?.showGrid ?? true,
       gridColor: props.areaConfig?.gridColor ?? '#e2e8f0',
@@ -636,7 +733,7 @@ function renderWithCurrentRows() {
       pointColor: props.areaConfig?.pointColor ?? '#1d4ed8',
       pointStroke: props.areaConfig?.pointStroke ?? '#ffffff',
       tooltip: props.areaConfig?.tooltip ?? true,
-      tooltipFormat: props.areaConfig?.tooltipFormat ?? ((d: any) =>d[yKey]),
+      tooltipFormat: props.areaConfig?.tooltipFormat ?? ((d: any) => formatNumber(d[yKey])),
       hoverLine: props.areaConfig?.hoverLine ?? true,
       hoverColor: props.areaConfig?.hoverColor ?? '#94a3b8',
       focusCircle: props.areaConfig?.focusCircle ?? true,
@@ -659,15 +756,27 @@ function renderWithCurrentRows() {
     }
     renderDotDonutChart(svgRef.value, props.spec, renderRows, props.dotDonutConfig);
   } else if (props.spec.type === "pie" && svgRef.value) {
-    renderPieDonutChart(svgRef.value, props.spec, filteredRows.value, props.pieConfig);
+    renderPieDonutChart(svgRef.value, props.spec, filteredRows.value, {
+      ...(props.pieConfig ?? {}),
+      numberFormat: resolveNumberFormat(),
+    });
   } else if (props.spec.type === "scatter" && svgRef.value) {
-    renderScatterPlot(svgRef.value, props.spec, filteredRows.value, props.scatterConfig);
+    renderScatterPlot(svgRef.value, props.spec, filteredRows.value, {
+      ...(props.scatterConfig ?? {}),
+      numberFormat: resolveNumberFormat(),
+    });
   } else if (props.spec.type === "map" && svgRef.value) {
     renderAfricaMap(svgRef.value, props.spec, filteredRows.value, props.mapConfig);
   } else if (props.spec.type === "bubble" && svgRef.value) {
-    renderBubbleChart(svgRef.value, props.spec, filteredRows.value, props.bubbleConfig);
+    renderBubbleChart(svgRef.value, props.spec, filteredRows.value, {
+      ...(props.bubbleConfig ?? {}),
+      numberFormat: resolveNumberFormat(),
+    });
   } else if (props.spec.type === "stackedBar" && svgRef.value) {
-    renderStackedBarChart(svgRef.value, props.spec, filteredRows.value, props.stackedBarConfig);
+    renderStackedBarChart(svgRef.value, props.spec, filteredRows.value, {
+      ...(props.stackedBarConfig ?? {}),
+      numberFormat: resolveNumberFormat(),
+    });
   } else if (props.spec.type === "orbitDonut" && svgRef.value) {
     renderOrbitDonutChart(svgRef.value, props.spec, filteredRows.value, props.orbitDonutConfig);
   }

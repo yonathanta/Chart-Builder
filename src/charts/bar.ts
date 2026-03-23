@@ -1,5 +1,6 @@
 import * as d3 from 'd3';
 import type { ChartSpec } from '../specs/chartSpec';
+import { createNumberFormatter, normalizeNumberFormat, type NumberFormatOption } from '../utils/numberFormat';
 
 export type BuilderBarConfig = {
   cornerRadius?: number;
@@ -17,7 +18,7 @@ export type BuilderBarConfig = {
   labelAlignment?: 'left' | 'right';
   separateLabelLine?: boolean;
   valueAlignment?: 'left' | 'right';
-  numberFormat?: string; // d3-format string, e.g. ',.2~f'
+  numberFormat?: NumberFormatOption;
   swapLabelsAndValues?: boolean;
   replaceCodesWithFlags?: boolean;
   valueMin?: number;
@@ -112,7 +113,7 @@ export function renderBarChart(
     labelAlignment: config.labelAlignment ?? 'left',
     separateLabelLine: config.separateLabelLine ?? false,
     valueAlignment: config.valueAlignment ?? 'right',
-    numberFormat: config.numberFormat ?? ',.2~f',
+    numberFormat: normalizeNumberFormat(config.numberFormat ?? 'default'),
     swapLabelsAndValues: config.swapLabelsAndValues ?? false,
     replaceCodesWithFlags: config.replaceCodesWithFlags ?? false,
     valueMin: (config.valueMin ?? undefined) as unknown as number,
@@ -161,6 +162,7 @@ export function renderBarChart(
      ============================ */
 
   const style = (spec as any).style || {};
+    const formatNumber = createNumberFormatter(cfg.numberFormat);
   const layoutPreset = spec.layout?.preset;
   const orientation = style.orientation || (layoutPreset === 'horizontal' ? 'horizontal' : 'vertical'); // vertical | horizontal
   let mode = style.mode || (spec.encoding.series ? 'grouped' : 'simple'); // simple | grouped | stacked | stacked100
@@ -240,12 +242,11 @@ export function renderBarChart(
       .style('font-weight', cfg.labelFontWeight);
 
     let maxValueWidth = 0;
-    const fmt = d3.format(cfg.numberFormat);
     const getBarId = (d: any) => (seriesKey ? `${d[categoryKey]}-${d[seriesKey]}` : `${d[categoryKey]}`);
 
     data.forEach(d => {
       const v = Number(d[valueKey]);
-      const text = Number.isFinite(v) ? fmt(v) : String(d[valueKey] ?? '');
+      const text = Number.isFinite(v) ? formatNumber(v) : String(d[valueKey] ?? '');
       const labelText = overrides?.[getBarId(d)]?.label ?? text;
       tempText.text(labelText);
       const bbox = (tempText.node() as SVGTextElement).getBBox();
@@ -446,10 +447,10 @@ export function renderBarChart(
 
   const xAxis = orientation === 'vertical'
     ? d3.axisBottom(categoryBand)
-    : d3.axisBottom(valueLinear);
+    : d3.axisBottom(valueLinear).tickFormat((d: any) => formatNumber(d));
 
   const yAxis = orientation === 'vertical'
-    ? d3.axisLeft(valueLinear)
+    ? d3.axisLeft(valueLinear).tickFormat((d: any) => formatNumber(d))
     : d3.axisLeft(categoryBand);
 
   // Ensure no lingering transitions on axis groups before redrawing.
@@ -682,7 +683,7 @@ export function renderBarChart(
       if (tooltipEl) {
         const val = d[valueKey];
         const seriesVal = seriesKey ? d[seriesKey] : undefined;
-        const content = `${seriesVal !== undefined ? `<div><strong>${String(seriesVal)}</strong></div>` : ''}<div>Value: ${fmt(val as any)}</div>`;
+        const content = `${seriesVal !== undefined ? `<div><strong>${String(seriesVal)}</strong></div>` : ''}<div>Value: ${formatNumber(val)}</div>`;
         const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
         tooltipEl.style.left = `${event.clientX - rect.left}px`;
         tooltipEl.style.top = `${event.clientY - rect.top}px`;
@@ -758,7 +759,7 @@ export function renderBarChart(
 
         if (tooltipEl) {
           const val = (d as any)[1] - (d as any)[0];
-          const content = `<div><strong>${(d as any).key}</strong></div><div>Category: ${(d as any).data.category}</div><div>Value: ${fmt(val)}</div>`;
+          const content = `<div><strong>${(d as any).key}</strong></div><div>Category: ${(d as any).data.category}</div><div>Value: ${formatNumber(val)}</div>`;
           const rect = (svgEl.parentElement || svgEl).getBoundingClientRect();
           tooltipEl.style.left = `${event.clientX - rect.left}px`;
           tooltipEl.style.top = `${event.clientY - rect.top}px`;
@@ -808,7 +809,7 @@ export function renderBarChart(
         })
         .text(d => {
           const val = (d as any)[1] - (d as any)[0];
-          return Math.abs(val) > 0.05 ? fmt(val) : '';
+          return Math.abs(val) > 0.05 ? formatNumber(val) : '';
         });
     } else {
       seriesGroups.selectAll('text.stack-label').remove();
@@ -827,14 +828,12 @@ export function renderBarChart(
       exit => exit.transition().duration(cfg.animationDuration).style('opacity', 0).remove()
     );
 
-  const fmt = d3.format(cfg.numberFormat);
-
   labels
     .transition(transitionBase)
     .delay((_, i) => i * cfg.staggerDelay)
     .text(d => {
       const num = Number(d[valueKey]);
-      const text = Number.isFinite(num) ? fmt(num) : String((d as any)[valueKey] ?? '');
+      const text = Number.isFinite(num) ? formatNumber(num) : String((d as any)[valueKey] ?? '');
       return overrides?.[barId(d)]?.label ?? text;
     })
     .attr('x', d => {
@@ -1204,7 +1203,7 @@ export function renderBarChart(
         .delay((_, idx) => idx * cfg.staggerDelay)
         .text((d: any) => {
           const v = Number(d[valueKey]);
-          const text = Number.isFinite(v) ? fmt(v) : String(d[valueKey] ?? '');
+          const text = Number.isFinite(v) ? formatNumber(v) : String(d[valueKey] ?? '');
           return overrides?.[`${d[categoryKey]}-${facetKey}`]?.label ?? text;
         })
         .attr('x', (d: any) => (xBandFacet(d[categoryKey]) ?? 0) + xBandFacet.bandwidth() / 2)

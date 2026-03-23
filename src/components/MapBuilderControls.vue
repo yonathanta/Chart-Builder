@@ -127,6 +127,22 @@ function updateThresholds(val: string) {
     </div>
 
     <div class="form-field">
+      <label>Show Labels</label>
+      <select v-model="local.showLabels">
+        <option :value="true">Yes</option>
+        <option :value="false">No</option>
+      </select>
+    </div>
+
+    <div class="form-field" v-if="local.showLabels !== false">
+      <label>Label Font Size</label>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <input type="range" min="8" max="20" step="1" :value="local.labelFontSize ?? 10" @input="local.labelFontSize = Number(($event.target as HTMLInputElement).value)" style="flex:1" />
+        <small class="muted" style="min-width:28px">{{ local.labelFontSize ?? 10 }}</small>
+      </div>
+    </div>
+
+    <div class="form-field">
       <label>Show Tooltip</label>
       <select v-model="local.showTooltip">
         <option :value="true">Yes</option>

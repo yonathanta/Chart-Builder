@@ -10,6 +10,7 @@ import { renderAfricaMap } from '../charts/map'
 import { renderBubbleChart } from '../charts/bubble'
 import { renderStackedBarChart } from '../charts/stackedBar'
 import { renderOrbitDonutChart } from '../charts/orbitDonut'
+import { createNumberFormatter, normalizeNumberFormat } from '../utils/numberFormat'
 
 const props = defineProps<{
   chart: {
@@ -110,6 +111,27 @@ function adjustConfigForViewport(type: string, config: Record<string, unknown>, 
     }
   }
 
+  if (type === 'map') {
+    const shortSide = Math.max(220, Math.min(width, height))
+    const responsiveScale = Math.round(shortSide * 0.58)
+    const responsiveLabelFont = Math.max(8, Math.min(14, Math.round(shortSide / 46)))
+    const existingMapConfig = ((next.mapConfig as Record<string, unknown> | undefined) ?? {})
+    const existingShowLabels = existingMapConfig.showLabels
+
+    return {
+      ...next,
+      mapConfig: {
+        ...existingMapConfig,
+        // Keep labels visible in report unless explicitly disabled.
+        showLabels: typeof existingShowLabels === 'boolean' ? existingShowLabels : true,
+        // Tie map projection scale to container size for manual report resizing.
+        scale: responsiveScale,
+        // Keep label text readable as report blocks are resized.
+        labelFontSize: responsiveLabelFont,
+      },
+    }
+  }
+
   return next
 }
 
@@ -169,6 +191,8 @@ async function render(force = false) {
   svg.setAttribute('height', String(height))
 
   const responsiveConfig = adjustConfigForViewport(type, config ?? {}, width, height)
+  const numberFormat = normalizeNumberFormat((responsiveConfig as any).numberFormat ?? (responsiveConfig as any).style?.numberFormat ?? 'default')
+  const formatNumber = createNumberFormatter(numberFormat)
 
   if (lineChart) { lineChart.destroy(); lineChart = null; }
   if (areaChart) { areaChart.destroy(); areaChart = null; }
@@ -177,27 +201,53 @@ async function render(force = false) {
   let renderedSvg: SVGSVGElement | null = svg
 
   if (type === 'bar') {
-    renderBarChart(svg, responsiveConfig, data, (responsiveConfig as any).barConfig)
+    renderBarChart(svg, responsiveConfig, data, { ...((responsiveConfig as any).barConfig ?? {}), numberFormat })
   } else if (type === 'line') {
     svg.style.display = 'none'
-    lineChart = createLineChart(frame, data, { ...(responsiveConfig as any).lineConfig, width, height })
+    const lineConfig = (responsiveConfig as any).lineConfig ?? {}
+    lineChart = createLineChart(frame, data, {
+      ...lineConfig,
+      yTickFormat: lineConfig.yTickFormat ?? ((value: unknown) => formatNumber(value)),
+      tooltipFormat: lineConfig.tooltipFormat ?? ((d: any) => {
+        const yKey = lineConfig.yKey
+        const xKey = lineConfig.xKey
+        const xValue = xKey ? d?.[xKey] : ''
+        const yValue = yKey ? d?.[yKey] : undefined
+        return `<div><strong>${String(xValue ?? '')}</strong></div><div>${formatNumber(yValue)}</div>`
+      }),
+      width,
+      height,
+    })
     renderedSvg = frame.querySelector('svg') as SVGSVGElement | null
   } else if (type === 'area') {
     svg.style.display = 'none'
-    areaChart = drawAreaChart(frame, data, { ...(responsiveConfig as any).areaConfig, width, height })
+    const areaConfig = (responsiveConfig as any).areaConfig ?? {}
+    areaChart = drawAreaChart(frame, data, {
+      ...areaConfig,
+      yTickFormat: areaConfig.yTickFormat ?? ((value: unknown) => formatNumber(value)),
+      tooltipFormat: areaConfig.tooltipFormat ?? ((d: any) => {
+        const xKey = areaConfig.xKey
+        const yKey = areaConfig.yKey
+        const xValue = xKey ? d?.[xKey] : ''
+        const yValue = yKey ? d?.[yKey] : undefined
+        return `<div><strong>${String(xValue ?? '')}</strong></div><div>${formatNumber(yValue)}</div>`
+      }),
+      width,
+      height,
+    })
     renderedSvg = frame.querySelector('svg') as SVGSVGElement | null
   } else if (type === 'dotDonut') {
     renderDotDonutChart(svg, responsiveConfig, data, (responsiveConfig as any).dotDonutConfig)
   } else if (type === 'pie') {
-    renderPieDonutChart(svg, responsiveConfig, data, (responsiveConfig as any).pieConfig)
+    renderPieDonutChart(svg, responsiveConfig, data, { ...((responsiveConfig as any).pieConfig ?? {}), numberFormat })
   } else if (type === 'scatter') {
-    renderScatterPlot(svg, responsiveConfig, data, (responsiveConfig as any).scatterConfig)
+    renderScatterPlot(svg, responsiveConfig, data, { ...((responsiveConfig as any).scatterConfig ?? {}), numberFormat })
   } else if (type === 'map') {
     renderAfricaMap(svg, responsiveConfig, data, (responsiveConfig as any).mapConfig)
   } else if (type === 'bubble') {
-    renderBubbleChart(svg, responsiveConfig, data, (responsiveConfig as any).bubbleConfig)
+    renderBubbleChart(svg, responsiveConfig, data, { ...((responsiveConfig as any).bubbleConfig ?? {}), numberFormat })
   } else if (type === 'stackedBar') {
-    renderStackedBarChart(svg, responsiveConfig, data, (responsiveConfig as any).stackedBarConfig)
+    renderStackedBarChart(svg, responsiveConfig, data, { ...((responsiveConfig as any).stackedBarConfig ?? {}), numberFormat })
   } else if (type === 'orbitDonut') {
     renderOrbitDonutChart(svg, responsiveConfig, data, (responsiveConfig as any).orbitDonutConfig)
   }

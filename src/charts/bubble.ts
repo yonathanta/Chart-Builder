@@ -1,5 +1,6 @@
 import * as d3 from 'd3';
 import type { ChartSpec } from '../specs/chartSpec';
+import { createNumberFormatter, normalizeNumberFormat, type NumberFormatOption } from '../utils/numberFormat';
 
 export interface BubbleChartConfig {
     textColor?: string;
@@ -7,6 +8,7 @@ export interface BubbleChartConfig {
     bottomColor?: string;
     middleColor?: string;
     fontFamily?: string;
+    numberFormat?: NumberFormatOption;
 }
 
 export function renderBubbleChart(
@@ -23,6 +25,7 @@ export function renderBubbleChart(
     const bottomColorRange = config.bottomColor ? [config.bottomColor, config.bottomColor] : ["#F2C57C", "#D9973B"];
     const grayColor = config.middleColor ?? "#D1D5DB";
     const fontFamily = spec.style?.fontFamily ?? 'Poppins, Arial, sans-serif';
+    const formatNumber = createNumberFormatter(normalizeNumberFormat(config.numberFormat ?? 'default'));
 
     // 1. Prepare Data
     const sorted = [...data].sort((a, b) => Number(b[valueKey]) - Number(a[valueKey]));
@@ -218,7 +221,7 @@ export function renderBubbleChart(
         tooltip.style("display", "block")
             .style("left", (event.pageX + 12) + "px")
             .style("top", (event.pageY + 12) + "px")
-            .html(`<strong>${d.id}</strong><div style="margin-top:6px">Score: <strong>${d.value}</strong></div>`);
+            .html(`<strong>${d.id}</strong><div style="margin-top:6px">Score: <strong>${formatNumber(d.value)}</strong></div>`);
     })
         .on("mouseout", () => tooltip.style("display", "none"));
 

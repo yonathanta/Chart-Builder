@@ -92,6 +92,21 @@ export const styleSchema = z.object({
   palette: z.array(z.string()).optional(),
   background: z.string().optional(),
   fontFamily: z.string().optional(),
+  numberFormat: z
+    .enum([
+      "default",
+      "integer",
+      "2-decimal",
+      "3-decimal",
+      "thousands",
+      "millions",
+      "billions",
+      "trillions",
+      "percent",
+      "scientific",
+      "auto",
+    ])
+    .optional(),
   axis: z
     .object({
       xLabel: z.string().optional(),

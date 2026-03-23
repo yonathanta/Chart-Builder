@@ -54,12 +54,13 @@ const spec = ref<ChartSpec>({
     series: { field: "series" },
   },
   layout: { preset: "single", width: 720, height: 420 },
-  style: { palette: ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"] },
+  style: { palette: ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"], numberFormat: 'default' },
 });
 
 const lastValidated = ref<string | undefined>();
 const validationError = ref<string | undefined>();
 const activeStep = ref(1);
+const selectedChartType = ref<ChartSpec["type"] | null>(null);
 
 const steps = [
   { id: 1, label: "Data", icon: "database" },
@@ -83,7 +84,7 @@ const barConfig = ref<BarBuilderConfig>({
   yLabelOffset: 0,
   labelAlignment: 'left',
   separateLabelLine: false,
-  numberFormat: ',.2~f',
+  numberFormat: 'default',
   swapLabelsAndValues: false,
   replaceCodesWithFlags: false,
   valueMin: undefined,
@@ -126,6 +127,8 @@ const pieConfig = ref<PieConfig>({
 const mapConfig = ref<MapConfig>({
   colorMode: 'gradient',
   colorScheme: 'interpolateBlues',
+  showLabels: true,
+  labelFontSize: 10,
   scale: 400,
   projectionCenter: [20, 5],
   animationDuration: 1000,
@@ -791,6 +794,7 @@ function getChartConfigPayload(datasetId: string, previewImageDataUrl?: string) 
 
   return {
     ...sanitizedSpec,
+    numberFormat: sanitizedSpec.style?.numberFormat ?? 'default',
     barConfig: barConfig.value,
     lineConfig: lineConfig.value,
     areaConfig: areaConfig.value,
@@ -825,6 +829,17 @@ function applyChartConfig(config: Record<string, unknown>): void {
       ...spec.value,
       ...(nextSpec as ChartSpec),
     };
+    selectedChartType.value = spec.value.type;
+  }
+
+  if (typeof config.numberFormat === 'string') {
+    spec.value = {
+      ...spec.value,
+      style: {
+        ...(spec.value.style ?? {}),
+        numberFormat: config.numberFormat as any,
+      },
+    } as ChartSpec;
   }
 
   if (config.barConfig && typeof config.barConfig === "object") {
@@ -1730,6 +1745,7 @@ onBeforeRouteLeave(async () => {
 });
 
 function updateType(type: ChartSpec["type"]) {
+  selectedChartType.value = type;
   // When switching to certain chart types, suggest sensible default layout presets.
   if (type === 'orbitDonut') {
     spec.value = { ...spec.value, type, layout: { ...spec.value.layout, preset: 'grid' } };
@@ -1760,12 +1776,34 @@ function updateType(type: ChartSpec["type"]) {
 }
 
 function applyPreset(payload: { type: ChartSpec["type"]; layoutPreset?: "single" | "horizontal" | "vertical" | "grid" | "smallMultiples"; mode?: "grouped" | "stacked" | "percent" | "simple" }) {
+  selectedChartType.value = payload.type;
   const nextStyle = { ...spec.value.style } as any;
   if (payload.mode) nextStyle.mode = payload.mode;
   const currentLayout = spec.value.layout || { preset: "single" };
   const nextLayout = { ...currentLayout, preset: payload.layoutPreset ?? currentLayout.preset };
   spec.value = { ...spec.value, type: payload.type, style: nextStyle, layout: nextLayout } as ChartSpec;
   refreshPreview();
+}
+
+function canMovePastTypeStep(): boolean {
+  return activeStep.value !== 2 || !!selectedChartType.value;
+}
+
+function goToStep(stepId: number): void {
+  if (stepId > 2 && !selectedChartType.value) {
+    activeStep.value = 2;
+    return;
+  }
+
+  activeStep.value = stepId;
+}
+
+function goToNextStep(): void {
+  if (!canMovePastTypeStep()) {
+    return;
+  }
+
+  activeStep.value = Math.min(4, activeStep.value + 1);
 }
 
 function updateLayout(payload: Partial<ChartSpec["layout"]>) {
@@ -2189,7 +2227,7 @@ function toggleSidebar(): void {
         <div class="step-content-card">
           <!-- Sub-tabs -->
           <div class="step-tabs">
-            <button v-for="step in steps" :key="step.id" class="step-tab" :class="{ 'step-tab--active': activeStep === step.id }" @click="activeStep = step.id">
+            <button v-for="step in steps" :key="step.id" class="step-tab" :class="{ 'step-tab--active': activeStep === step.id }" @click="goToStep(step.id)">
               <span class="step-tab__icon"></span> <!-- Add icons later if needed -->
               {{ step.label }}
             </button>
@@ -2259,7 +2297,8 @@ function toggleSidebar(): void {
             <!-- Step 2: Type -->
             <div v-if="activeStep === 2">
               <h3 class="panel__title">Select chart type</h3>
-              <ChartTypeSelector :selected="spec.type" @select="updateType" @preset="applyPreset" />
+              <ChartTypeSelector :selected="selectedChartType" @select="updateType" @preset="applyPreset" />
+              <p v-if="!selectedChartType" class="muted" style="margin-top: 8px;">Select a chart type to continue.</p>
             </div>
 
             <!-- Step 3: Config -->
@@ -2299,7 +2338,7 @@ function toggleSidebar(): void {
             <button class="btn btn--ghost step-nav-btn" :disabled="activeStep === 1" @click="activeStep--" title="Previous step" aria-label="Previous step">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             </button>
-            <button class="btn btn--primary step-nav-btn" v-if="activeStep < 4" @click="activeStep++" title="Next step" aria-label="Next step">
+            <button class="btn btn--primary step-nav-btn" v-if="activeStep < 4" :disabled="!canMovePastTypeStep()" @click="goToNextStep" title="Next step" aria-label="Next step">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </button>
           </div>

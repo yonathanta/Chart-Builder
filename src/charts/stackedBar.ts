@@ -1,5 +1,6 @@
 import * as d3 from 'd3';
 import type { ChartSpec } from '../specs/chartSpec';
+import { createNumberFormatter, normalizeNumberFormat, type NumberFormatOption } from '../utils/numberFormat';
 
 export interface StackedBarConfig {
     animationDuration?: number;
@@ -8,6 +9,7 @@ export interface StackedBarConfig {
     showValues?: boolean;
     barPadding?: number;
     cornerRadius?: number;
+    numberFormat?: NumberFormatOption;
 }
 
 export function renderStackedBarChart(
@@ -22,14 +24,15 @@ export function renderStackedBarChart(
         showLegend = true,
         showValues = false,
         barPadding = 0.2,
-        cornerRadius = 4
+        cornerRadius = 4,
+        numberFormat = 'default'
     } = config;
 
     const categoryKey = spec.encoding.category.field;
     const valueKey = spec.encoding.value.field;
     const seriesKey = spec.encoding.series?.field;
 
-    const fmt = d3.format(",.2~f");
+    const formatNumber = createNumberFormatter(normalizeNumberFormat(numberFormat));
 
     const svg = d3.select(svgEl);
     const width = Number(svg.attr('width')) || 800;
@@ -99,7 +102,7 @@ export function renderStackedBarChart(
         let maxLegendWidth = 0;
         tempText.style('font-size', '12px');
         subgroups.forEach(key => {
-            const legendText = `${key} (${fmt(seriesTotals[key] || 0)})`;
+            const legendText = `${key} (${formatNumber(seriesTotals[key] || 0)})`;
             tempText.text(legendText);
             const bbox = (tempText.node() as SVGTextElement).getBBox();
             if (bbox.width > maxLegendWidth) maxLegendWidth = bbox.width;
@@ -150,7 +153,7 @@ export function renderStackedBarChart(
 
     g.append("g")
         .attr("class", "axis--y")
-        .call(d3.axisLeft(y));
+        .call(d3.axisLeft(y).tickFormat((d: any) => formatNumber(d) as any));
 
     // 6. Tooltip
     let tooltip: any;
@@ -192,7 +195,7 @@ export function renderStackedBarChart(
         bars.on("mouseover", function (event, d: any) {
             tooltip
                 .style("opacity", 1)
-                .html(`<strong>${d.key}</strong><br>${categoryKey}: ${d.data[categoryKey]}<br>Value: ${fmt(d[1] - d[0])}`)
+                .html(`<strong>${d.key}</strong><br>${categoryKey}: ${d.data[categoryKey]}<br>Value: ${formatNumber(d[1] - d[0])}`)
                 .style("left", (event.pageX + 15) + "px")
                 .style("top", (event.pageY - 28) + "px");
         })
@@ -227,7 +230,7 @@ export function renderStackedBarChart(
             .style("opacity", 0)
             .text((d: any) => {
                 const val = d[1] - d[0];
-                return val > 0 ? fmt(val) : '';
+                return val > 0 ? formatNumber(val) : '';
             })
             .transition()
             .duration(animationDuration)
@@ -254,7 +257,7 @@ export function renderStackedBarChart(
                 .attr("x", 20)
                 .attr("y", 12)
                 .style("font-size", "12px")
-                .text(`${key} (${fmt(seriesTotals[key] || 0)})`);
+                .text(`${key} (${formatNumber(seriesTotals[key] || 0)})`);
         });
     }
 
@@ -275,7 +278,7 @@ export function renderStackedBarChart(
 
         y.domain([0, d3.max(updatedPivoted, d => subgroups.reduce((sum, key) => sum + (d[key] || 0), 0)) || 0]).nice();
 
-        g.select(".axis--y").transition().duration(animationDuration).call(d3.axisLeft(y) as any);
+        g.select(".axis--y").transition().duration(animationDuration).call(d3.axisLeft(y).tickFormat((d: any) => formatNumber(d) as any) as any);
 
         const updatedLayers = g.selectAll(".layer-group")
             .data(updatedStacked);
@@ -295,7 +298,7 @@ export function renderStackedBarChart(
                 .attr("y", (d: any) => y((d[0] + d[1]) / 2))
                 .text((d: any) => {
                     const val = d[1] - d[0];
-                    return val > 0 ? fmt(val) : '';
+                    return val > 0 ? formatNumber(val) : '';
                 });
         }
     };

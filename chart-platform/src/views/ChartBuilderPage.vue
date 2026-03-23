@@ -56,7 +56,7 @@ const barConfig = ref<BarBuilderConfig>({
   yLabelOffset: 0,
   labelAlignment: 'left',
   separateLabelLine: false,
-  numberFormat: ',.2~f',
+  numberFormat: 'default',
   swapLabelsAndValues: false,
   replaceCodesWithFlags: false,
   valueMin: undefined,

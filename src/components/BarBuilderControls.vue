@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import type { NumberFormatOption } from "../utils/numberFormat";
 
 export type BarBuilderConfig = {
   cornerRadius: number;
@@ -17,7 +18,7 @@ export type BarBuilderConfig = {
   // New options
   labelAlignment: "left" | "right";
   separateLabelLine: boolean;
-  numberFormat: string;
+  numberFormat: NumberFormatOption;
   swapLabelsAndValues: boolean;
   replaceCodesWithFlags: boolean;
   valueMin?: number;
@@ -144,8 +145,8 @@ const separateLabelLine = computed({
 
 
 const numberFormat = computed({
-  get: () => props.config.numberFormat,
-  set: (v: string) => emit("update:config", { ...props.config, numberFormat: v }),
+  get: () => props.config.numberFormat ?? 'default',
+  set: (v: NumberFormatOption) => emit("update:config", { ...props.config, numberFormat: v }),
 });
 
 const swapLabelsAndValues = computed({
@@ -541,9 +542,17 @@ const labelPositionMode = computed({
     <label class="form-field">
       <span>Number format</span>
       <select :value="numberFormat" @change="numberFormat = ($event.target as HTMLSelectElement).value">
-        <option value=",.0f">1,000</option>
-        <option value=",.2f">1,000.00</option>
-        <option value=",.2~f">1,000[.00]</option>
+        <option value="default">Default</option>
+        <option value="integer">Integer</option>
+        <option value="2-decimal">2 Decimal</option>
+        <option value="3-decimal">3 Decimal</option>
+        <option value="thousands">Thousands (K)</option>
+        <option value="millions">Millions (M)</option>
+        <option value="billions">Billions (B)</option>
+        <option value="trillions">Trillions (T)</option>
+        <option value="percent">Percent</option>
+        <option value="scientific">Scientific</option>
+        <option value="auto">Auto</option>
       </select>
     </label>
 

@@ -1,5 +1,6 @@
 import * as d3 from 'd3';
 import type { ChartSpec } from '../specs/chartSpec';
+import { createNumberFormatter, normalizeNumberFormat, type NumberFormatOption } from '../utils/numberFormat';
 
 export interface PieConfig {
     innerRadius?: number; // 0 for pie, > 0 for donut
@@ -7,6 +8,7 @@ export interface PieConfig {
     animationDuration?: number;
     showLabels?: boolean;
     showTooltip?: boolean;
+    numberFormat?: NumberFormatOption;
 }
 
 export function renderPieDonutChart(
@@ -20,8 +22,10 @@ export function renderPieDonutChart(
         outerRadiusOffset = 15,
         animationDuration = 800,
         showLabels = true,
-        showTooltip = true
+        showTooltip = true,
+        numberFormat = 'default'
     } = config;
+    const formatNumber = createNumberFormatter(normalizeNumberFormat(numberFormat));
 
     const categoryKey = spec.encoding.category.field;
     const valueKey = spec.encoding.value.field;
@@ -112,7 +116,7 @@ export function renderPieDonutChart(
             // Simple overlay tooltip logic if needed, but for now we focus on the expansion
             // The template uses a body-appended div. We'll skip that for now to avoid side effects
             // and maybe use the SVG title for native tooltips if needed.
-            d3.select(this).append("title").text(`${d.data.label}: ${d.data.value}`);
+            d3.select(this).append("title").text(`${d.data.label}: ${formatNumber(d.data.value)}`);
         })
             .on("mouseout", function (this: any) {
                 d3.select(this).transition().duration(200).attr("d", arc);

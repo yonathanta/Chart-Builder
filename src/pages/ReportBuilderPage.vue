@@ -128,6 +128,7 @@ const pageMarginMm = ref(10)
 const blockSpacingPx = ref(16)
 const selectedChartControlBlockId = ref('')
 const addPageAfterIndex = ref(0)
+const selectedPageIndex = ref(0)
 const activeTransformBlockId = ref('')
 const reportZoomPercent = ref(100)
 
@@ -971,7 +972,11 @@ function addContentBlock(kind: 'title' | 'subtitle' | 'paragraph' | 'image' | 'v
     return
   }
 
-  blocks.value = normalizeOrder([...blocks.value, createBlock(kind)])
+  const ordered = [...sortedBlocks.value]
+  const safePageIndex = Math.max(0, Math.min(selectedPageIndex.value, Math.max(reportPages.value.length - 1, 0)))
+  const insertIndex = pageInsertIndex(safePageIndex, ordered)
+  ordered.splice(insertIndex, 0, createBlock(kind))
+  blocks.value = normalizeOrder(ordered)
 }
 
 function addPageBlock(): void {
@@ -1003,6 +1008,7 @@ function addPageBlock(): void {
   ordered.splice(insertIndex, 0, createBlock('page'))
   blocks.value = normalizeOrder(ordered)
   addPageAfterIndex.value = Math.min(targetPage + 1, reportPages.value.length)
+  selectedPageIndex.value = Math.min(targetPage + 1, Math.max(reportPages.value.length - 1, 0))
 }
 
 function updateBlockText(blockId: string, text: string): void {
@@ -1117,7 +1123,14 @@ function handleBlockSelect(block: ReportBlockItem): void {
   if (previewMode.value || !isMovableBlock(block)) {
     return
   }
+  selectedPageIndex.value = getPageIndexForBlock(block.id)
+  addPageAfterIndex.value = selectedPageIndex.value
   activeTransformBlockId.value = block.id
+}
+
+function handlePageSelect(pageIndex: number): void {
+  selectedPageIndex.value = Math.max(0, Math.min(pageIndex, Math.max(reportPages.value.length - 1, 0)))
+  addPageAfterIndex.value = selectedPageIndex.value
 }
 
 function shouldIgnoreDirectDrag(target: EventTarget | null): boolean {
@@ -1843,6 +1856,9 @@ watch(
     if (addPageAfterIndex.value > maxIndex) {
       addPageAfterIndex.value = maxIndex
     }
+    if (selectedPageIndex.value > maxIndex) {
+      selectedPageIndex.value = maxIndex
+    }
   },
   { immediate: true },
 )
@@ -2109,7 +2125,9 @@ onBeforeUnmount(() => {
             v-else
             :key="`report-page-${pageIndex}`"
             class="report-page"
+            :class="{ 'report-page--selected': !previewMode && !exporting && selectedPageIndex === pageIndex }"
             :style="reportSurfaceStyle"
+            @click="handlePageSelect(pageIndex)"
           >
             <div v-if="!previewMode && !exporting" class="page-banner">Page {{ pageIndex + 1 }}</div>
 
@@ -2657,6 +2675,10 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   background: #ffffff;
   overflow: hidden;
+}
+
+.report-page--selected {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.28);
 }
 
 .report-page + .report-page {

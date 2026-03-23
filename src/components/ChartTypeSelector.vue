@@ -2,7 +2,7 @@
 import type { ChartType } from "../specs/chartSpec";
 
 const props = defineProps<{
-  selected: ChartType;
+  selected: ChartType | null;
 }>();
 
 const emit = defineEmits<{
