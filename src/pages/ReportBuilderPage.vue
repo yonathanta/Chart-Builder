@@ -40,6 +40,14 @@ type ChartDisplayOptions = {
   heightPx: number
 }
 
+type ParagraphAlignment = 'left' | 'center' | 'right' | 'justify'
+
+type ParagraphOptions = {
+  alignment: ParagraphAlignment
+  fontSizePx: number
+  lineHeight: number
+}
+
 type BlockLayout = {
   enabled: boolean
   x: number
@@ -56,6 +64,7 @@ type ReportBlockItem = {
   text?: string
   mediaUrl?: string
   chartOptions?: ChartDisplayOptions
+  paragraphOptions?: ParagraphOptions
   layout?: BlockLayout
 }
 
@@ -144,6 +153,9 @@ const quickInsertBlocks: Array<{
   { kind: 'video', label: 'Video', icon: 'VID' },
 ]
 
+const paragraphFontSizeOptions = [12, 13, 14, 15, 16, 18, 20, 22, 24]
+const paragraphLineHeightOptions = [1.2, 1.35, 1.5, 1.65, 1.75, 1.9, 2.05, 2.2]
+
 const chartSearch = ref('')
 const chartTypeFilter = ref('all')
 const shareOpen = ref(false)
@@ -230,6 +242,23 @@ const selectedChartControlOptions = computed(() => {
     ...getDefaultChartOptions(chartNameForBlock(block)),
     ...(block.chartOptions ?? {}),
   }
+})
+
+const selectedParagraphBlock = computed(() =>
+  sortedBlocks.value.find((block) => block.id === activeTransformBlockId.value && block.kind === 'paragraph') ?? null
+)
+
+const selectedParagraphOptions = computed(() =>
+  normalizeParagraphOptions(selectedParagraphBlock.value?.paragraphOptions)
+)
+
+const selectedParagraphSummary = computed(() => {
+  const text = selectedParagraphBlock.value?.text?.trim() ?? ''
+  if (!text) {
+    return 'Selected paragraph block'
+  }
+
+  return text.length > 96 ? `${text.slice(0, 96).trimEnd()}...` : text
 })
 
 const reportSurfaceStyle = computed(() => ({
@@ -406,6 +435,44 @@ function getDefaultChartOptions(chartName: string): ChartDisplayOptions {
   }
 }
 
+function getDefaultParagraphOptions(): ParagraphOptions {
+  return {
+    alignment: 'left',
+    fontSizePx: 14,
+    lineHeight: 1.75,
+  }
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function normalizeParagraphOptions(value: unknown): ParagraphOptions {
+  const defaults = getDefaultParagraphOptions()
+  if (!value || typeof value !== 'object') {
+    return defaults
+  }
+
+  const candidate = value as Partial<ParagraphOptions>
+  const alignment = candidate.alignment === 'center'
+    || candidate.alignment === 'right'
+    || candidate.alignment === 'justify'
+    ? candidate.alignment
+    : defaults.alignment
+  const fontSizePx = Number.isFinite(candidate.fontSizePx)
+    ? clampNumber(Number(candidate.fontSizePx), 12, 24)
+    : defaults.fontSizePx
+  const lineHeight = Number.isFinite(candidate.lineHeight)
+    ? clampNumber(Number(candidate.lineHeight), 1.2, 2.2)
+    : defaults.lineHeight
+
+  return {
+    alignment,
+    fontSizePx,
+    lineHeight,
+  }
+}
+
 function defaultChartLayout(index: number): BlockLayout {
   return {
     ...defaultBlockLayout(),
@@ -468,6 +535,7 @@ function createBlock(kind: BlockKind): ReportBlockItem {
     orderIndex: blocks.value.length,
     text: placeholders[kind],
     mediaUrl: '',
+    paragraphOptions: kind === 'paragraph' ? getDefaultParagraphOptions() : undefined,
     layout: textLike || mediaLike
       ? {
           ...defaultBlockLayout(),
@@ -569,6 +637,7 @@ function buildBlocksFromState(reportId: string, charts: ReportLayoutItem[]): Rep
         orderIndex: 0,
         text: typeof block.text === 'string' ? block.text : '',
         mediaUrl: typeof block.mediaUrl === 'string' ? block.mediaUrl : '',
+        paragraphOptions: kind === 'paragraph' ? normalizeParagraphOptions(block.paragraphOptions) : undefined,
         layout: block.layout && typeof block.layout === 'object'
           ? {
               ...defaultBlockLayout(),
@@ -1070,6 +1139,22 @@ function updateBlockLayout(blockId: string, patch: Partial<BlockLayout>): void {
   })
 }
 
+function updateParagraphOptions(blockId: string, patch: Partial<ParagraphOptions>): void {
+  blocks.value = blocks.value.map((item) => {
+    if (item.id !== blockId || item.kind !== 'paragraph') {
+      return item
+    }
+
+    return {
+      ...item,
+      paragraphOptions: normalizeParagraphOptions({
+        ...item.paragraphOptions,
+        ...patch,
+      }),
+    }
+  })
+}
+
 function isTextBlock(kind: BlockKind): boolean {
   return kind === 'section'
     || kind === 'title'
@@ -1179,6 +1264,27 @@ function updateSelectedChartLayoutSize(patch: Partial<BlockLayout>): void {
   updateBlockLayout(block.id, patch)
 }
 
+function updateSelectedParagraphFreeMove(enabled: boolean): void {
+  const block = selectedParagraphBlock.value
+  if (!block) {
+    return
+  }
+
+  setBlockFreeMove(block.id, enabled)
+  if (enabled) {
+    activeTransformBlockId.value = block.id
+  }
+}
+
+function updateSelectedParagraphOptions(patch: Partial<ParagraphOptions>): void {
+  const block = selectedParagraphBlock.value
+  if (!block) {
+    return
+  }
+
+  updateParagraphOptions(block.id, patch)
+}
+
 function chartTypeIconLabel(type: string): string {
   const normalized = type.toLowerCase()
   if (normalized === 'bar') return 'BAR'
@@ -1253,6 +1359,19 @@ function blockStyle(block: ReportBlockItem): Record<string, string> {
     '--rb-section-font': `${Math.round(24 * textScale)}px`,
     '--rb-title-font': `${Math.round(32 * textScale)}px`,
     '--rb-subtitle-font': `${Math.round(22 * textScale)}px`,
+  }
+}
+
+function paragraphTextStyle(block: ReportBlockItem): Record<string, string> {
+  if (block.kind !== 'paragraph') {
+    return {}
+  }
+
+  const options = normalizeParagraphOptions(block.paragraphOptions)
+  return {
+    textAlign: options.alignment,
+    fontSize: `${options.fontSizePx}px`,
+    lineHeight: String(options.lineHeight),
   }
 }
 
@@ -2058,6 +2177,101 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    <section v-if="!previewMode && selectedParagraphBlock" class="global-chart-controls">
+      <header class="global-chart-controls__header">
+        <h3>Paragraph Controls</h3>
+        <p class="hint">Adjust paragraph alignment, font size, and spacing for the selected paragraph block.</p>
+      </header>
+
+      <div class="global-chart-controls__grid">
+        <div class="global-chart-controls__field">
+          <span>Selected Paragraph</span>
+          <p class="hint">{{ selectedParagraphSummary }}</p>
+        </div>
+
+        <div class="chart-controls chart-controls--global">
+          <div class="chart-controls__checks">
+            <label>
+              <input
+                :checked="selectedParagraphBlock?.layout?.enabled ?? false"
+                type="checkbox"
+                @change="updateSelectedParagraphFreeMove(($event.target as HTMLInputElement).checked)"
+              />
+              Enable Move / Resize
+            </label>
+          </div>
+
+          <div class="chart-controls__line">
+            <div class="global-chart-controls__field">
+              <span>Alignment</span>
+              <div class="alignment-icon-group" role="group" aria-label="Paragraph alignment">
+                <button
+                  class="align-icon-btn"
+                  :class="{ 'align-icon-btn--active': selectedParagraphOptions.alignment === 'left' }"
+                  type="button"
+                  title="Align left"
+                  @click="updateSelectedParagraphOptions({ alignment: 'left' })"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h9v1H2zm0 3h12v1H2zm0 3h9v1H2zm0 3h12v1H2z"/></svg>
+                </button>
+                <button
+                  class="align-icon-btn"
+                  :class="{ 'align-icon-btn--active': selectedParagraphOptions.alignment === 'center' }"
+                  type="button"
+                  title="Align center"
+                  @click="updateSelectedParagraphOptions({ alignment: 'center' })"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3h8v1H4zm-2 3h12v1H2zm2 3h8v1H4zm-2 3h12v1H2z"/></svg>
+                </button>
+                <button
+                  class="align-icon-btn"
+                  :class="{ 'align-icon-btn--active': selectedParagraphOptions.alignment === 'right' }"
+                  type="button"
+                  title="Align right"
+                  @click="updateSelectedParagraphOptions({ alignment: 'right' })"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3h9v1H5zM2 6h12v1H2zm5 3h7v1H7zM2 12h12v1H2z"/></svg>
+                </button>
+                <button
+                  class="align-icon-btn"
+                  :class="{ 'align-icon-btn--active': selectedParagraphOptions.alignment === 'justify' }"
+                  type="button"
+                  title="Justify"
+                  @click="updateSelectedParagraphOptions({ alignment: 'justify' })"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12v1H2zm0 3h12v1H2zm0 3h12v1H2zm0 3h12v1H2z"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="control-dropdown-row">
+              <label class="global-chart-controls__field">
+                Font Size
+                <select
+                  class="type-filter"
+                  :value="selectedParagraphOptions.fontSizePx"
+                  @change="updateSelectedParagraphOptions({ fontSizePx: Number(($event.target as HTMLSelectElement).value) })"
+                >
+                  <option v-for="fontSize in paragraphFontSizeOptions" :key="`font-${fontSize}`" :value="fontSize">{{ fontSize }} px</option>
+                </select>
+              </label>
+
+              <label class="global-chart-controls__field">
+                Line Height
+                <select
+                  class="type-filter"
+                  :value="selectedParagraphOptions.lineHeight"
+                  @change="updateSelectedParagraphOptions({ lineHeight: Number(($event.target as HTMLSelectElement).value) })"
+                >
+                  <option v-for="lineHeight in paragraphLineHeightOptions" :key="`line-${lineHeight}`" :value="lineHeight">{{ lineHeight.toFixed(2) }}</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="content-grid" :class="{ 'content-grid--preview': previewMode }">
       <aside v-if="!previewMode" class="chart-picker">
         <h2>Project Charts</h2>
@@ -2221,12 +2435,17 @@ onBeforeUnmount(() => {
                         ? 'textarea-input--notes'
                         : 'textarea-input--source'
                   ]"
+                  :style="paragraphTextStyle(block)"
                   :rows="block.kind === 'paragraph' ? 7 : block.kind === 'notes' ? 5 : 3"
                   :value="block.text || ''"
                   :placeholder="block.kind === 'paragraph' ? 'Paragraph text' : block.kind === 'notes' ? 'Notes' : 'Source'"
                   @input="updateBlockText(block.id, ($event.target as HTMLTextAreaElement).value)"
                 ></textarea>
-                <p v-else :class="block.kind === 'source' ? 'text-source' : 'text-paragraph'">{{ block.text || '' }}</p>
+                <p
+                  v-else
+                  :class="block.kind === 'source' ? 'text-source' : 'text-paragraph'"
+                  :style="paragraphTextStyle(block)"
+                >{{ block.text || '' }}</p>
               </template>
 
               <template v-else-if="block.kind === 'image' || block.kind === 'video'">
@@ -2784,6 +3003,47 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.control-dropdown-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.alignment-icon-group {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.align-icon-btn {
+  width: 34px;
+  height: 32px;
+  border: 1px solid #c7d3e3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.align-icon-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+
+.align-icon-btn:hover {
+  border-color: #0f4fa8;
+}
+
+.align-icon-btn--active {
+  border-color: #0f4fa8;
+  color: #0f4fa8;
+  box-shadow: 0 0 0 1px rgba(15, 79, 168, 0.2);
+}
+
 .size-row label {
   display: flex;
   flex-direction: column;
@@ -3012,6 +3272,10 @@ onBeforeUnmount(() => {
   }
 
   .size-row {
+    grid-template-columns: 1fr;
+  }
+
+  .control-dropdown-row {
     grid-template-columns: 1fr;
   }
 
