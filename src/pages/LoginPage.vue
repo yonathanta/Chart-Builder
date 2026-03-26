@@ -37,7 +37,7 @@ function getErrorMessage(error: unknown): string {
           error?: string
           message?: string
           title?: string
-          details?: string[]
+          details?: string | string[]
           errors?: Record<string, string[]>
         } | string
       }
@@ -53,7 +53,7 @@ function getErrorMessage(error: unknown): string {
         error?: string
         message?: string
         title?: string
-        details?: string[]
+        details?: string | string[]
         errors?: Record<string, string[]>
       }
 
@@ -65,6 +65,10 @@ function getErrorMessage(error: unknown): string {
         if (typeof firstFieldError === 'string' && firstFieldError.trim().length > 0) {
           return firstFieldError
         }
+      }
+
+      if (typeof typed.details === 'string' && typed.details.trim().length > 0) {
+        return typed.details
       }
 
       if (Array.isArray(typed.details) && typed.details.length > 0) {
@@ -135,6 +139,10 @@ function handleDevelopmentSkip(): void {
 function goToRegister(): void {
   router.push('/register')
 }
+
+function goToForgotPassword(): void {
+  router.push('/forgot-password')
+}
 </script>
 
 <template>
@@ -192,7 +200,7 @@ function goToRegister(): void {
                 <input type="checkbox" />
                 <span>Remember me</span>
               </label>
-              <button type="button" class="link-button">Forgot password?</button>
+              <button type="button" class="link-button" @click="goToForgotPassword">Forgot password?</button>
             </div>
 
             <p v-if="formError" class="error-text">{{ formError }}</p>

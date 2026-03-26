@@ -97,6 +97,7 @@ const pieConfig = ref<PieConfig>({
 const mapConfig = ref<MapConfig>({
   colorMode: 'gradient',
   colorScheme: 'interpolateBlues',
+  showValues: false,
   scale: 400,
   projectionCenter: [20, 5],
   animationDuration: 1000,
@@ -392,9 +393,14 @@ async function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+function sanitizeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, "").trim();
+}
+
 async function handleExport(format: ExportFormat) {
   const svg = previewRef.value?.getSvgEl?.();
   const baseName = (spec.value.title?.trim() || "chart").replace(/\s+/g, "-").toLowerCase();
+  const htmlName = sanitizeFileName(spec.value.title?.trim() || "Chart") || "Chart";
   const background = spec.value.style?.background;
 
   try {
@@ -413,7 +419,7 @@ async function handleExport(format: ExportFormat) {
     } else if (format === "html") {
       if (!svg) throw new Error("No SVG to export");
       const blob = await exportService.exportHTML(svg, spec.value);
-      await downloadBlob(blob, `${baseName}.html`);
+      await downloadBlob(blob, `${htmlName}.html`);
     } else if (format === "spec-json") {
       const blob = await exportService.exportSpec(spec.value);
       await downloadBlob(blob, `${baseName}-spec.json`);

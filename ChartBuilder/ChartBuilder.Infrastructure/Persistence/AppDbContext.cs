@@ -34,6 +34,11 @@ public sealed class AppDbContext : DbContext
         {
             entity.HasKey(user => user.Id);
             entity.HasIndex(user => user.Email).IsUnique();
+            entity.Property(user => user.PasswordResetTokenHash)
+                .HasMaxLength(128)
+                .IsRequired(false);
+            entity.Property(user => user.PasswordResetTokenExpiresAtUtc)
+                .IsRequired(false);
 
             entity.HasMany(user => user.Projects)
                 .WithOne(project => project.User)

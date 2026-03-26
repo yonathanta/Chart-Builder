@@ -7,6 +7,8 @@ import DatasetLibraryPage from '../pages/DatasetLibraryPage.vue'
 import AdminDashboard from '../pages/AdminDashboard.vue'
 import LoginPage from '../pages/LoginPage.vue'
 import RegisterPage from '../pages/RegisterPage.vue'
+import ForgotPasswordPage from '../pages/ForgotPasswordPage.vue'
+import ResetPasswordPage from '../pages/ResetPasswordPage.vue'
 import { useAuthStore } from '../stores/auth'
 import { useProjectStore } from '../stores/projectStore'
 
@@ -33,6 +35,24 @@ const routes = [
         path: '/register',
         name: 'register',
         component: RegisterPage,
+        meta: {
+            requiresAuth: false,
+            hideNav: true
+        }
+    },
+    {
+        path: '/forgot-password',
+        name: 'forgot-password',
+        component: ForgotPasswordPage,
+        meta: {
+            requiresAuth: false,
+            hideNav: true
+        }
+    },
+    {
+        path: '/reset-password',
+        name: 'reset-password',
+        component: ResetPasswordPage,
         meta: {
             requiresAuth: false,
             hideNav: true

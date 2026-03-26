@@ -10,6 +10,8 @@ public sealed class User : BaseEntity
 
     public string Email { get; private set; } = string.Empty;
     public string PasswordHash { get; private set; } = string.Empty;
+    public string? PasswordResetTokenHash { get; private set; }
+    public DateTime? PasswordResetTokenExpiresAtUtc { get; private set; }
     public string FullName { get; private set; } = string.Empty;
     public UserRole Role { get; private set; } = UserRole.Viewer;
     public DateTime CreatedAt { get; private set; } = DateTime.UtcNow;
@@ -68,6 +70,18 @@ public sealed class User : BaseEntity
     public void SetPasswordHash(string passwordHash)
     {
         PasswordHash = passwordHash;
+    }
+
+    public void SetPasswordResetToken(string tokenHash, DateTime expiresAtUtc)
+    {
+        PasswordResetTokenHash = tokenHash;
+        PasswordResetTokenExpiresAtUtc = expiresAtUtc;
+    }
+
+    public void ClearPasswordResetToken()
+    {
+        PasswordResetTokenHash = null;
+        PasswordResetTokenExpiresAtUtc = null;
     }
 
     public void Deactivate()

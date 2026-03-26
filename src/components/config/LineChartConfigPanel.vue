@@ -113,11 +113,13 @@ const curveOptions = [
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-width: 0;
 }
 
 .config-section {
   padding-bottom: 16px;
   border-bottom: 1px solid #f1f5f9;
+  min-width: 0;
 }
 
 .section-title {
@@ -131,22 +133,39 @@ const curveOptions = [
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
+  align-items: start;
 }
 
 .form-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .form-field label {
   font-size: 12px;
   color: #64748b;
+  line-height: 1.4;
+}
+
+.form-field input,
+.form-field select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 input[type="checkbox"] {
-  width: fit-content;
+  width: auto;
+  align-self: flex-start;
+}
+
+@media (max-width: 1100px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

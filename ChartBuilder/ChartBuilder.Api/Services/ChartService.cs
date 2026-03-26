@@ -89,6 +89,24 @@ public sealed class ChartService : IChartService
 
         EnsureNotPublished(chart);
 
+        var dashboardLinks = await _dbContext.DashboardCharts
+            .Where(candidate => candidate.ChartId == chartId)
+            .ToListAsync(cancellationToken);
+
+        var reportLinks = await _dbContext.ReportCharts
+            .Where(candidate => candidate.ChartId == chartId)
+            .ToListAsync(cancellationToken);
+
+        if (dashboardLinks.Count > 0)
+        {
+            _dbContext.DashboardCharts.RemoveRange(dashboardLinks);
+        }
+
+        if (reportLinks.Count > 0)
+        {
+            _dbContext.ReportCharts.RemoveRange(reportLinks);
+        }
+
         _dbContext.Charts.Remove(chart);
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;

@@ -251,198 +251,204 @@ export const exportService: ExportService = {
         exportedAt: new Date().toISOString(),
       },
     };
-    const exportWidth = Math.max(800, Number(spec.layout?.width ?? 800));
-    const exportHeight = Math.max(500, Number(spec.layout?.height ?? 500));
-    const snapshotDataUrl = await createHtmlExportSnapshot(svgString, spec, effectiveState, options);
-    const safeStateJson = JSON.stringify(effectiveState).replace(/<\//g, "<\\/");
+    const exportWidth = Math.max(640, Number(spec.layout?.width ?? 960));
+    const exportHeight = Math.max(420, Number(spec.layout?.height ?? 500));
+
+    const embeddedData = Array.isArray(effectiveState.data) ? effectiveState.data : [];
+    const embeddedConfig = {
+      type: effectiveState.config?.type ?? spec.type,
+      colors: effectiveState.style?.palette ?? spec.style?.palette ?? ["#2563eb", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444"],
+      axis: {
+        ...(spec.style?.axis ?? {}),
+      },
+      labels: {
+        title: effectiveState.metadata?.title ?? spec.title ?? "Chart",
+        description: effectiveState.metadata?.description ?? spec.description ?? "",
+      },
+      styles: {
+        ...(spec.style ?? {}),
+        ...(effectiveState.style ?? {}),
+      },
+      encoding: spec.encoding,
+      layout: spec.layout ?? {},
+      animation: {
+        enabled: Boolean(effectiveState.animation?.enabled),
+        duration: Math.max(200, Number(effectiveState.animation?.duration ?? 800)),
+        easing: String(effectiveState.animation?.easing ?? "cubic-out"),
+        staggerDelay: 35,
+      },
+    };
+
+    const safeDataJson = JSON.stringify(embeddedData).replace(/<\//g, "<\\/");
+    const safeConfigJson = JSON.stringify(embeddedConfig).replace(/<\//g, "<\\/");
+    const safeStyleJson = JSON.stringify(effectiveState.style ?? {}).replace(/<\//g, "<\\/");
     const safeSvgJson = JSON.stringify(svgString).replace(/<\//g, "<\\/");
-    const safeSnapshotJson = JSON.stringify(snapshotDataUrl).replace(/<\//g, "<\\/");
+
     const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(spec.title ?? "Chart export")}</title>
+  <title>${escapeHtml(spec.title ?? "Chart")}</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
-    :root {
-      --bg: ${escapeHtml(String(spec.style?.background ?? "#ffffff"))};
-      --text: #111827;
-      --muted: #6b7280;
-      --card: #ffffff;
-      --border: #e5e7eb;
-      --radius: 12px;
-      --shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
-      --maxw: ${Math.max(exportWidth + 120, 960)}px;
-      --export-width: ${exportWidth}px;
-      --export-height: ${exportHeight}px;
-    }
-
-    * { box-sizing: border-box; }
-
     body {
       margin: 0;
-      min-height: 100vh;
-      background: linear-gradient(180deg, var(--bg), #f8fafc);
-      color: var(--text);
+      padding: 20px;
+      background: ${escapeHtml(String(spec.style?.background ?? "#ffffff"))};
+      color: #0f172a;
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      padding: 24px;
     }
 
     .wrap {
-      max-width: var(--maxw);
+      width: min(100%, ${Math.max(exportWidth + 80, 900)}px);
       margin: 0 auto;
-      display: grid;
-      gap: 12px;
     }
 
-    .header h1 {
-      margin: 0;
-      font-size: 22px;
-      line-height: 1.25;
+    h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
     }
 
     .meta {
-      margin-top: 6px;
-      color: var(--muted);
+      margin: 0 0 14px;
+      color: #64748b;
       font-size: 13px;
     }
 
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 16px;
-      overflow: visible;
-    }
-
-    #chart-host {
-      width: var(--export-width);
-      min-height: var(--export-height);
-      height: var(--export-height);
-      margin: 0 auto;
-      display: flex;
-      align-items: stretch;
-      justify-content: stretch;
-      overflow: visible;
+    #chart {
+      width: 100%;
+      height: ${exportHeight}px;
+      min-height: 420px;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
       background: #ffffff;
+      overflow: visible;
     }
 
-    #chart-host > img,
-    #chart-host > svg {
+    #chart svg {
       width: 100%;
       height: 100%;
       display: block;
-      transform-origin: 50% 50%;
-      object-fit: contain;
-      background: #ffffff;
-      overflow: visible;
     }
 
-    #chart-host > img {
-      border: 1px solid var(--border);
-      border-radius: 10px;
+    #chart svg :is(rect, path, circle, ellipse, polygon, polyline, line) {
+      transition: opacity 160ms ease, filter 160ms ease;
     }
 
-    details {
-      border-top: 1px dashed var(--border);
-      padding-top: 10px;
-    }
-
-    summary {
-      cursor: pointer;
-      color: var(--muted);
-      font-size: 13px;
-      user-select: none;
-    }
-
-    pre {
-      margin: 10px 0 0;
-      max-height: 300px;
-      overflow: auto;
-      font-size: 12px;
-      line-height: 1.4;
-      background: #0f172a;
-      color: #e2e8f0;
-      border-radius: 8px;
-      padding: 12px;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    @media (max-width: 720px) {
-      body { padding: 12px; }
-      .card { padding: 10px; }
-      .header h1 { font-size: 18px; }
+    @media (max-width: 768px) {
+      #chart {
+        height: 420px;
+      }
     }
   </style>
 </head>
 <body>
   <main class="wrap">
-    <header class="header">
-      <h1>${escapeHtml(spec.title ?? "Chart export")}</h1>
-      <div class="meta" id="meta"></div>
-    </header>
-
-    <section class="card">
-      <div id="chart-host" aria-label="Chart container"></div>
-    </section>
-
-    <section class="card">
-      <details>
-        <summary>Embedded Chart State (offline)</summary>
-        <pre id="state"></pre>
-      </details>
-    </section>
+    <h1>${escapeHtml(spec.title ?? "Chart")}</h1>
+    <div id="chart"></div>
   </main>
 
   <script>
-    const chartState = ${safeStateJson};
+    const data = ${safeDataJson};
+    const config = ${safeConfigJson};
+    const styles = ${safeStyleJson};
     const serializedSvg = ${safeSvgJson};
-    const snapshotDataUrl = ${safeSnapshotJson};
 
-    function renderChart(state) {
-      const host = document.getElementById("chart-host");
-      const meta = document.getElementById("meta");
-      const stateEl = document.getElementById("state");
-      if (!host) return;
+    function fitSvgToContent(host, svg) {
+      if (!host || !svg) return;
 
-      host.innerHTML = "";
-      const snapshot = document.createElement("img");
-      snapshot.src = snapshotDataUrl;
-      snapshot.alt = String(state?.metadata?.title || "Exported chart snapshot");
-      host.appendChild(snapshot);
+      const widthAttr = Number(svg.getAttribute("width"));
+      const heightAttr = Number(svg.getAttribute("height"));
+      if (!svg.hasAttribute("viewBox")) {
+        const fallbackWidth = Number.isFinite(widthAttr) && widthAttr > 0 ? widthAttr : ${exportWidth};
+        const fallbackHeight = Number.isFinite(heightAttr) && heightAttr > 0 ? heightAttr : ${exportHeight};
+        svg.setAttribute("viewBox", "0 0 " + fallbackWidth + " " + fallbackHeight);
+      }
 
-      const count = Array.isArray(state?.data) ? state.data.length : 0;
-      const chartType = state?.config?.type || state?.config?.chartType || "unknown";
-      const exportedAt = state?.metadata?.exportedAt || "";
-      const source = state?.metadata?.source || "";
-      const description = state?.metadata?.description || "";
-      const parts = [
-        "Type: " + String(chartType),
-        "Rows: " + String(count),
-        exportedAt ? "Exported: " + new Date(exportedAt).toLocaleString() : "",
-        source ? "Source: " + source : "",
-        description ? "Description: " + description : "",
-      ].filter(Boolean);
-      if (meta) meta.textContent = parts.join(" | ");
-      if (stateEl) stateEl.textContent = JSON.stringify(state, null, 2);
+      try {
+        const box = svg.getBBox();
+        if (Number.isFinite(box.x) && Number.isFinite(box.y) && box.width > 0 && box.height > 0) {
+          const pad = Math.max(8, Math.round(Math.max(box.width, box.height) * 0.02));
+          const x = box.x - pad;
+          const y = box.y - pad;
+          const w = box.width + pad * 2;
+          const h = box.height + pad * 2;
+          svg.setAttribute("viewBox", x + " " + y + " " + w + " " + h);
+        }
+      } catch (error) {
+        console.warn("Unable to compute SVG bounds for export", error);
+      }
 
-      if (snapshot && state?.animation?.enabled) {
-        const duration = Number(state.animation.duration || 700);
-        const easing = String(state.animation.easing || "ease");
-        snapshot.style.opacity = "0";
-        snapshot.style.transform = "translateY(10px) scale(0.995)";
-        snapshot.style.transition = "opacity " + duration + "ms " + easing + ", transform " + duration + "ms " + easing;
-
-        requestAnimationFrame(() => {
-          snapshot.style.opacity = "1";
-          snapshot.style.transform = "translateY(0) scale(1)";
-        });
+      const viewBox = svg.viewBox && svg.viewBox.baseVal ? svg.viewBox.baseVal : null;
+      if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
+        host.style.aspectRatio = String(viewBox.width) + " / " + String(viewBox.height);
       }
     }
 
-    renderChart(chartState);
+    function applyMarkInteractions(svg) {
+      if (!svg) return;
+      const marks = svg.querySelectorAll("rect, path, circle, ellipse, polygon, polyline, line");
+      marks.forEach((el, index) => {
+        const computed = window.getComputedStyle(el);
+        const inlineOpacity = el.getAttribute("opacity");
+        const baseOpacity = inlineOpacity == null ? computed.opacity || "1" : inlineOpacity;
+
+        el.dataset.baseOpacity = String(baseOpacity);
+        el.style.opacity = "0";
+        el.style.cursor = "pointer";
+
+        const delay = 80 + index * 12;
+        window.setTimeout(() => {
+          el.style.opacity = String(baseOpacity);
+        }, delay);
+
+        el.addEventListener("mouseenter", () => {
+          const current = Number(el.dataset.baseOpacity || "1");
+          const hoverOpacity = Number.isFinite(current) ? Math.max(0.35, current * 0.78) : 0.78;
+          el.style.opacity = String(hoverOpacity);
+          el.style.filter = "brightness(1.08) drop-shadow(0 1px 2px rgba(15, 23, 42, 0.18))";
+        });
+
+        el.addEventListener("mouseleave", () => {
+          el.style.opacity = String(el.dataset.baseOpacity || "1");
+          el.style.filter = "none";
+        });
+      });
+    }
+
+    function renderExactSvg(containerId) {
+      const host = document.getElementById(containerId);
+      if (!host) return;
+
+      host.innerHTML = serializedSvg;
+      const svg = host.querySelector("svg");
+      if (!svg) return;
+
+      // Keep the exported chart visually identical while fitting the container.
+      fitSvgToContent(host, svg);
+      svg.setAttribute("width", "100%");
+      svg.setAttribute("height", "100%");
+      svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      svg.style.display = "block";
+
+      applyMarkInteractions(svg);
+
+      // Small load animation without mutating chart internals.
+      svg.style.opacity = "0";
+      svg.style.transform = "translateY(8px) scale(0.995)";
+      svg.style.transition = "opacity 650ms ease, transform 650ms ease";
+      requestAnimationFrame(() => {
+        svg.style.opacity = "1";
+        svg.style.transform = "translateY(0) scale(1)";
+      });
+    }
+
+    renderExactSvg("chart");
+
+    window.addEventListener("resize", () => {
+      renderExactSvg("chart");
+    });
   </script>
 </body>
 </html>`;

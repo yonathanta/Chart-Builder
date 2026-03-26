@@ -142,6 +142,14 @@ function updateThresholds(val: string) {
       </div>
     </div>
 
+    <div class="form-field" v-if="local.showLabels !== false">
+      <label>Show Values</label>
+      <select v-model="local.showValues">
+        <option :value="true">Yes</option>
+        <option :value="false">No</option>
+      </select>
+    </div>
+
     <div class="form-field">
       <label>Show Tooltip</label>
       <select v-model="local.showTooltip">

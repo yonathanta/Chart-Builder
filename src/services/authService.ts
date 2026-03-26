@@ -11,6 +11,16 @@ type AuthResponse = {
   user?: AuthUser;
 };
 
+type ForgotPasswordResponse = {
+  message?: string;
+  resetLink?: string | null;
+  expiresAtUtc?: string | null;
+};
+
+type ResetPasswordResponse = {
+  message?: string;
+};
+
 const TOKEN_KEY = "token";
 const USER_KEY = "user";
 
@@ -43,9 +53,21 @@ export async function register(email: string, password: string, fullName: string
   return response.data;
 }
 
+export async function forgotPassword(email: string): Promise<ForgotPasswordResponse> {
+  const response = await api.post<ForgotPasswordResponse>("/auth/forgot-password", { email });
+  return response.data;
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<ResetPasswordResponse> {
+  const response = await api.post<ResetPasswordResponse>("/auth/reset-password", { token, newPassword });
+  return response.data;
+}
+
 const authService = {
   login,
   register,
+  forgotPassword,
+  resetPassword,
 };
 
 export default authService;

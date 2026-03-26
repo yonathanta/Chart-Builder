@@ -55,7 +55,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
         message?: string
         error?: string
         title?: string
-        details?: string[]
+        details?: string | string[]
         errors?: Record<string, string[]>
       } | string
     }
@@ -77,6 +77,10 @@ function getErrorMessage(error: unknown, fallback: string): string {
       if (typeof firstFieldError === 'string' && firstFieldError.trim().length > 0) {
         return firstFieldError
       }
+    }
+
+    if (typeof responseData.details === 'string' && responseData.details.trim().length > 0) {
+      return responseData.details
     }
 
     if (Array.isArray(responseData.details) && responseData.details.length > 0) {

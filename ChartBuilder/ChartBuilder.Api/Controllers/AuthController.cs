@@ -1,9 +1,11 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Cryptography;
 using System.Security.Claims;
 using System.Text;
 using ChartBuilder.Application.Auth.Dtos;
 using ChartBuilder.Domain.Entities;
 using ChartBuilder.Infrastructure.Persistence;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,6 +18,7 @@ namespace ChartBuilder.Api.Controllers;
 [Route("api/[controller]")]
 public sealed class AuthController : ControllerBase
 {
+    private static readonly TimeSpan PasswordResetTokenLifetime = TimeSpan.FromHours(1);
     private readonly AppDbContext _dbContext;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IConfiguration _configuration;
@@ -156,6 +159,86 @@ public sealed class AuthController : ControllerBase
                 error = "Unable to sign in right now. Please try again."
             });
         }
+    }
+
+    [AllowAnonymous]
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword(ForgotPasswordDto request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            return BadRequest(new { error = "Email is required." });
+        }
+
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(candidate => candidate.Email.ToLower() == normalizedEmail, cancellationToken);
+
+        // Always return success to avoid email-enumeration leaks.
+        if (user is null || !user.IsActive)
+        {
+            return Ok(new
+            {
+                message = "If the email exists, a reset link has been generated.",
+                resetLink = (string?)null,
+                expiresAtUtc = (DateTime?)null,
+            });
+        }
+
+        var rawToken = GeneratePasswordResetToken();
+        var tokenHash = HashToken(rawToken);
+        var expiresAtUtc = DateTime.UtcNow.Add(PasswordResetTokenLifetime);
+
+        user.SetPasswordResetToken(tokenHash, expiresAtUtc);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(rawToken));
+        var resetLink = $"http://localhost:5173/#/reset-password?token={Uri.EscapeDataString(encodedToken)}";
+
+        return Ok(new
+        {
+            message = "If the email exists, a reset link has been generated.",
+            resetLink,
+            expiresAtUtc,
+        });
+    }
+
+    [AllowAnonymous]
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword(ResetPasswordDto request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Token) || string.IsNullOrWhiteSpace(request.NewPassword))
+        {
+            return BadRequest(new { error = "Token and new password are required." });
+        }
+
+        var decodedToken = DecodeIncomingToken(request.Token);
+        if (string.IsNullOrWhiteSpace(decodedToken))
+        {
+            return BadRequest(new { error = "Invalid or expired reset token." });
+        }
+
+        var tokenHash = HashToken(decodedToken);
+        var nowUtc = DateTime.UtcNow;
+
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(candidate =>
+                candidate.PasswordResetTokenHash == tokenHash &&
+                candidate.PasswordResetTokenExpiresAtUtc.HasValue &&
+                candidate.PasswordResetTokenExpiresAtUtc.Value >= nowUtc,
+                cancellationToken);
+
+        if (user is null)
+        {
+            return BadRequest(new { error = "Invalid or expired reset token." });
+        }
+
+        user.SetPasswordHash(_passwordHasher.HashPassword(user, request.NewPassword));
+        user.ClearPasswordResetToken();
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "Password reset successful." });
     }
 
     private static object BuildLoginResponse(AuthResponseDto response)
@@ -319,5 +402,39 @@ public sealed class AuthController : ControllerBase
 
         mappedRole = UserRole.Viewer;
         return false;
+    }
+
+    private static string GeneratePasswordResetToken()
+    {
+        Span<byte> buffer = stackalloc byte[32];
+        RandomNumberGenerator.Fill(buffer);
+        return WebEncoders.Base64UrlEncode(buffer);
+    }
+
+    private static string HashToken(string token)
+    {
+        var bytes = Encoding.UTF8.GetBytes(token);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash);
+    }
+
+    private static string? DecodeIncomingToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return null;
+        }
+
+        // Accept already-decoded token and URL-safe base64 token from query string.
+        try
+        {
+            var decodedBytes = WebEncoders.Base64UrlDecode(token);
+            var decoded = Encoding.UTF8.GetString(decodedBytes);
+            return string.IsNullOrWhiteSpace(decoded) ? null : decoded;
+        }
+        catch (FormatException)
+        {
+            return token;
+        }
     }
 }

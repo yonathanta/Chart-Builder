@@ -409,10 +409,10 @@ public sealed class DashboardsController : ControllerBase
         }
 
         dashboard.UpdateStudioState(
-            request.Layout.GetRawText(),
-            request.Components.GetRawText(),
-            request.PageStructure.GetRawText(),
-            request.Snapshot.GetRawText());
+            GetJsonOrDefault(request.Layout, "[]"),
+            GetJsonOrDefault(request.Components, "[]"),
+            GetJsonOrDefault(request.PageStructure, "[]"),
+            GetJsonOrDefault(request.Snapshot, "{}"));
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -477,6 +477,16 @@ public sealed class DashboardsController : ControllerBase
     {
         var claimValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
         return Guid.TryParse(claimValue, out userId);
+    }
+
+    private static string GetJsonOrDefault(JsonElement element, string defaultJson)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Undefined => defaultJson,
+            JsonValueKind.Null => defaultJson,
+            _ => element.GetRawText(),
+        };
     }
 
     public sealed record CreateDashboardDto(Guid ProjectId, string Name);

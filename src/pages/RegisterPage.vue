@@ -77,7 +77,7 @@ function applyServerErrors(error: unknown): string {
         error?: string
         message?: string
         title?: string
-        details?: string[]
+        details?: string | string[]
         errors?: Record<string, string[]>
       }
     }
@@ -107,6 +107,10 @@ function applyServerErrors(error: unknown): string {
     if (fieldEntries.length > 0) {
       return data.title ?? 'Please correct the highlighted fields.'
     }
+  }
+
+  if (typeof data.details === 'string' && data.details.trim().length > 0) {
+    return data.details
   }
 
   if (Array.isArray(data.details) && data.details.length > 0) {

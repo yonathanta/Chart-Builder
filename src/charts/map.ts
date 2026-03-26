@@ -6,6 +6,7 @@ export interface MapConfig {
     colorScheme?: string; // D3 interpolator name like 'interpolateBlues'
     showTooltip?: boolean;
     showLabels?: boolean;
+    showValues?: boolean;
     labelFontSize?: number;
     projectionCenter?: [number, number];
     scale?: number;
@@ -57,6 +58,7 @@ export async function renderAfricaMap(
         colorScheme = 'interpolateBlues',
         showTooltip = true,
         showLabels = true,
+        showValues = false,
         labelFontSize = 10,
         projectionCenter = [20, 5],
         scale = 400,
@@ -190,7 +192,19 @@ export async function renderAfricaMap(
             .style('font-weight', '600')
             .style('fill', '#111827')
             .style('font-size', `${baseFontSize}px`)
-            .text((d: any) => String(d.properties?.name ?? ''));
+            .text((d: any) => {
+                const name = String(d.properties?.name ?? '');
+                if (!showValues) {
+                    return name;
+                }
+
+                const val = dataMap.get(name);
+                if (typeof val !== 'number' || !Number.isFinite(val)) {
+                    return name;
+                }
+
+                return `${name}: ${d3.format(',')(val)}`;
+            });
 
         // Keep labels readable while zooming.
         (g.node() as any).__updateMapLabelSize = (zoomK: number) => {
