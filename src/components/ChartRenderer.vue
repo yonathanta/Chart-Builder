@@ -202,18 +202,27 @@ async function render(force = false) {
 
   if (type === 'bar') {
     renderBarChart(svg, responsiveConfig, data, { ...((responsiveConfig as any).barConfig ?? {}), numberFormat })
-  } else if (type === 'line') {
+  } else if (type === 'line' || type === 'multi-line') {
     svg.style.display = 'none'
     const lineConfig = (responsiveConfig as any).lineConfig ?? {}
+    const encoding = (responsiveConfig as any).encoding ?? {}
+    const categoryField = encoding?.category?.field
+    const valueField = encoding?.value?.field
+    const seriesField = encoding?.series?.field ?? lineConfig.seriesField
     lineChart = createLineChart(frame, data, {
       ...lineConfig,
+      xKey: lineConfig.xKey ?? lineConfig.xField ?? categoryField,
+      yKey: lineConfig.yKey ?? lineConfig.yField ?? valueField,
+      seriesField,
       yTickFormat: lineConfig.yTickFormat ?? ((value: unknown) => formatNumber(value)),
       tooltipFormat: lineConfig.tooltipFormat ?? ((d: any) => {
-        const yKey = lineConfig.yKey
-        const xKey = lineConfig.xKey
+        const yKey = lineConfig.yKey ?? lineConfig.yField ?? valueField
+        const xKey = lineConfig.xKey ?? lineConfig.xField ?? categoryField
+        const sKey = seriesField
         const xValue = xKey ? d?.[xKey] : ''
         const yValue = yKey ? d?.[yKey] : undefined
-        return `<div><strong>${String(xValue ?? '')}</strong></div><div>${formatNumber(yValue)}</div>`
+        const seriesValue = sKey ? d?.[sKey] : undefined
+        return `${seriesValue !== undefined ? `<div><strong>${String(seriesValue)}</strong></div>` : ''}<div>${String(xValue ?? '')}</div><div>${formatNumber(yValue)}</div>`
       }),
       width,
       height,

@@ -16,6 +16,7 @@ const newProjectDescription = ref('')
 const PROJECTS_CHANGED_EVENT = 'projects:changed'
 
 const selectedProjectId = computed(() => projectStore.currentProject?.id ?? '')
+const selectedProjectName = computed(() => projectStore.currentProject?.name?.trim() ?? '')
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (typeof error !== 'object' || error === null) {
@@ -194,6 +195,8 @@ onMounted(async () => {
     <section class="create-panel">
       <h2>Projects</h2>
       <p class="hint">Create or select a project to unlock Charts, Dashboards, and Reports.</p>
+      <p class="selected-project" v-if="selectedProjectName">Selected Project: {{ selectedProjectName }}</p>
+      <p class="selected-project selected-project--empty" v-else>No project selected.</p>
 
       <div class="create-grid">
         <input v-model="newProjectName" placeholder="Project name" />
@@ -268,6 +271,18 @@ h2 {
   color: #0f766e;
   font-size: 13px;
   margin-top: 8px;
+}
+
+.selected-project {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.selected-project--empty {
+  color: #64748b;
+  font-weight: 500;
 }
 
 .create-grid {

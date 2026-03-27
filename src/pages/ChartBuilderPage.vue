@@ -9,6 +9,7 @@ import PieBuilderControls from "../components/PieBuilderControls.vue";
 import MapBuilderControls from "../components/MapBuilderControls.vue";
 import DatasetUploadPanel from "../components/DatasetUploadPanel.vue";
 import ManualDatasetEditor from "../components/ManualDatasetEditor.vue";
+import RecommendedChartsPanel from "../components/RecommendedChartsPanel.vue";
 import ScatterBuilderControls, { type ScatterBuilderConfig } from "../components/ScatterBuilderControls.vue";
 import BubbleBuilderControls from "../components/BubbleBuilderControls.vue";
 import DotDonutBuilderControls from "../components/DotDonutBuilderControls.vue";
@@ -36,6 +37,14 @@ import { validateConfigForType, getDefaultsForType } from "../config/configManag
 import LineChartConfigPanel from "../components/config/LineChartConfigPanel.vue";
 import AreaChartConfigPanel from "../components/config/AreaChartConfigPanel.vue";
 import StackedAreaConfigPanel from "../components/config/StackedAreaConfigPanel.vue";
+import {
+  analyzeDataset,
+  logRecommendationSelection,
+  materializeRecommendationRows,
+  suggestCharts,
+  type ChartRecommendation,
+  type DatasetAnalysis,
+} from "../utils/chartRecommendations";
 
 const spec = ref<ChartSpec>({
   version: "1.0",
@@ -218,6 +227,10 @@ const MAX_FILTERED_SNAPSHOT_ROWS = 2000;
 const MAX_INLINE_SOURCE_ROWS = 2000;
 const routeAutoLoadApplied = ref(false);
 const incomingDatasetLoading = ref(false);
+const sourceDatasetRows = ref<Record<string, unknown>[]>([]);
+const datasetAnalysis = ref<DatasetAnalysis | null>(null);
+const recommendedCharts = ref<ChartRecommendation[]>([]);
+const appliedRecommendationId = ref<string | null>(null);
 
 type SavedChartState = {
   id: string;
@@ -1076,7 +1089,34 @@ function toRowArray(value: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function applyRowsToSpec(rows: Record<string, unknown>[]): void {
+function updateRecommendations(rows: Record<string, unknown>[]): void {
+  sourceDatasetRows.value = rows;
+
+  if (rows.length === 0) {
+    datasetAnalysis.value = null;
+    recommendedCharts.value = [];
+    appliedRecommendationId.value = null;
+    return;
+  }
+
+  datasetAnalysis.value = analyzeDataset(rows);
+  recommendedCharts.value = suggestCharts(datasetAnalysis.value, rows);
+}
+
+function applyRowsToSpec(rows: Record<string, unknown>[], overrides?: {
+  type?: ChartSpec["type"];
+  encoding?: {
+    category?: string;
+    value?: string;
+    series?: string;
+    x?: string;
+    y?: string;
+    size?: string;
+  };
+  layoutPreset?: ChartSpec["layout"]["preset"];
+  styleMode?: string;
+  xAxisType?: "time" | "linear" | "category";
+}): void {
   disposeDatasetBlobUrl();
   datasetBlobUrl.value = null;
   const inlineRows = rows.slice(0, MAX_INLINE_SOURCE_ROWS);
@@ -1087,12 +1127,27 @@ function applyRowsToSpec(rows: Record<string, unknown>[]): void {
   const currentValue = spec.value.encoding.value.field;
   const currentSeries = spec.value.encoding.series?.field;
 
-  const categoryField = keys.includes(currentCategory) ? currentCategory : (keys[0] ?? "category");
-  const valueField = keys.includes(currentValue) ? currentValue : (keys[1] ?? keys[0] ?? "value");
-  const seriesField = currentSeries && keys.includes(currentSeries) ? currentSeries : undefined;
+  const categoryField = overrides?.encoding?.category
+    ?? overrides?.encoding?.x
+    ?? (keys.includes(currentCategory) ? currentCategory : (keys[0] ?? "category"));
+  const valueField = overrides?.encoding?.value
+    ?? overrides?.encoding?.y
+    ?? (keys.includes(currentValue) ? currentValue : (keys[1] ?? keys[0] ?? "value"));
+  const seriesField = overrides?.encoding?.series
+    ?? (currentSeries && keys.includes(currentSeries) ? currentSeries : undefined);
+
+  const nextEncoding: ChartSpec["encoding"] = {
+    category: { field: categoryField },
+    value: { field: valueField, aggregate: spec.value.encoding.value.aggregate ?? "sum" },
+    ...(seriesField ? { series: { field: seriesField } } : {}),
+    ...(overrides?.encoding?.x ? { x: { field: overrides.encoding.x } } : {}),
+    ...(overrides?.encoding?.y ? { y: { field: overrides.encoding.y } } : {}),
+    ...(overrides?.encoding?.size ? { size: { field: overrides.encoding.size } } : {}),
+  };
 
   spec.value = {
     ...spec.value,
+    type: overrides?.type ?? spec.value.type,
     data: {
       ...spec.value.data,
       provider: "json",
@@ -1102,14 +1157,50 @@ function applyRowsToSpec(rows: Record<string, unknown>[]): void {
         source: nextSource,
       },
     },
-    encoding: {
-      category: { field: categoryField },
-      value: { field: valueField, aggregate: spec.value.encoding.value.aggregate ?? "sum" },
-      ...(seriesField ? { series: { field: seriesField } } : {}),
-    },
+    encoding: nextEncoding,
+    layout: overrides?.layoutPreset ? { ...(spec.value.layout ?? {}), preset: overrides.layoutPreset } : spec.value.layout,
+    style: overrides?.styleMode ? { ...(spec.value.style ?? {}), mode: overrides.styleMode } : spec.value.style,
   };
 
+  if (overrides?.type === "line") {
+    lineConfig.value = {
+      ...lineConfig.value,
+      xType: overrides.xAxisType ?? lineConfig.value?.xType,
+    };
+  }
+
+  if (overrides?.type === "area") {
+    areaConfig.value = {
+      ...areaConfig.value,
+      xType: overrides.xAxisType ?? areaConfig.value?.xType,
+    };
+  }
+
   refreshPreview();
+}
+
+function applyRecommendedChart(recommendation: ChartRecommendation, options?: { auto?: boolean }): void {
+  const sourceRows = sourceDatasetRows.value;
+  if (sourceRows.length === 0) {
+    return;
+  }
+
+  const materialized = materializeRecommendationRows(sourceRows, recommendation);
+  applyRowsToSpec(materialized.rows, {
+    type: recommendation.type,
+    encoding: materialized.encoding,
+    layoutPreset: recommendation.layoutPreset,
+    styleMode: recommendation.styleMode,
+    xAxisType: recommendation.axisHints?.xType,
+  });
+
+  selectedChartType.value = recommendation.type;
+  appliedRecommendationId.value = recommendation.id;
+
+  if (!options?.auto) {
+    logRecommendationSelection(datasetAnalysis.value, recommendation);
+    activeStep.value = Math.max(activeStep.value, 2);
+  }
 }
 
 function getPreviewRows(): Record<string, unknown>[] {
@@ -1197,6 +1288,7 @@ async function selectDatasetById(datasetId: string): Promise<void> {
     selectedDatasetId.value = "";
     selectedDatasetName.value = "";
     disposeDatasetBlobUrl();
+    updateRecommendations([]);
     clearPersistedDataset(currentProjectId.value);
     return;
   }
@@ -1212,7 +1304,14 @@ async function selectDatasetById(datasetId: string): Promise<void> {
 
     selectedDatasetId.value = dataset.id;
     selectedDatasetName.value = dataset.name;
-    applyRowsToSpec(rows);
+    updateRecommendations(rows);
+
+    if (!isRestoringChart.value && recommendedCharts.value.length > 0) {
+      applyRecommendedChart(recommendedCharts.value[0], { auto: true });
+    } else {
+      applyRowsToSpec(rows);
+    }
+
     persistSelectedDataset(currentProjectId.value, dataset.id);
     localStorage.setItem(GLOBAL_SELECTED_DATASET_KEY, dataset.id);
     saveErrorMessage.value = null;
@@ -1220,6 +1319,7 @@ async function selectDatasetById(datasetId: string): Promise<void> {
     selectedDatasetId.value = "";
     selectedDatasetName.value = "";
     disposeDatasetBlobUrl();
+    updateRecommendations([]);
     clearPersistedDataset(currentProjectId.value);
     saveSuccessMessage.value = null;
     saveErrorMessage.value = getApiErrorMessage(error, "Failed to load selected dataset.");
@@ -1259,6 +1359,7 @@ async function handleDatasetUploadSuccess(created: DatasetRecord): Promise<void>
   availableDatasets.value = [created, ...availableDatasets.value.filter((dataset) => dataset.id !== created.id)];
   showDatasetUploadPanel.value = false;
   await selectDatasetById(created.id);
+  activeStep.value = 2;
   saveErrorMessage.value = null;
   saveSuccessMessage.value = `Dataset \"${created.name}\" uploaded and selected.`;
 }
@@ -1277,6 +1378,7 @@ async function handleManualDatasetSaved(payload: {
 
   availableDatasets.value = [created, ...availableDatasets.value.filter((dataset) => dataset.id !== created.id)];
   await selectDatasetById(created.id);
+  activeStep.value = 2;
 
   if (payload.suggestedChartType) {
     updateType(payload.suggestedChartType as ChartSpec["type"]);
@@ -1750,6 +1852,7 @@ onBeforeRouteLeave(async () => {
 });
 
 function updateType(type: ChartSpec["type"]) {
+  appliedRecommendationId.value = null;
   selectedChartType.value = type;
   // When switching to certain chart types, suggest sensible default layout presets.
   if (type === 'orbitDonut') {
@@ -1781,6 +1884,7 @@ function updateType(type: ChartSpec["type"]) {
 }
 
 function applyPreset(payload: { type: ChartSpec["type"]; layoutPreset?: "single" | "horizontal" | "vertical" | "grid" | "smallMultiples"; mode?: "grouped" | "stacked" | "percent" | "simple" }) {
+  appliedRecommendationId.value = null;
   selectedChartType.value = payload.type;
   const nextStyle = { ...spec.value.style } as any;
   if (payload.mode) nextStyle.mode = payload.mode;

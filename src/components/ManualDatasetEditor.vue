@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import datasetService, { type DatasetRecord } from '../services/datasetService'
+import { analyzeDataset, detectColumnType, suggestCharts } from '../utils/chartRecommendations'
 
 type ColumnType = 'category' | 'number' | 'date'
 
@@ -113,25 +114,6 @@ function normalizeRows(payload: unknown): Array<Record<string, unknown>> {
   return []
 }
 
-function detectType(values: string[]): ColumnType {
-  const nonEmpty = values.map((value) => value.trim()).filter((value) => value.length > 0)
-  if (nonEmpty.length === 0) {
-    return 'category'
-  }
-
-  const numericRatio = nonEmpty.filter((value) => Number.isFinite(Number(value))).length / nonEmpty.length
-  if (numericRatio >= 0.9) {
-    return 'number'
-  }
-
-  const dateRatio = nonEmpty.filter((value) => !Number.isNaN(Date.parse(value))).length / nonEmpty.length
-  if (dateRatio >= 0.8) {
-    return 'date'
-  }
-
-  return 'category'
-}
-
 function resetTable(colCount = 2, rowCount = 6): void {
   columns.value = Array.from({ length: colCount }, (_, index) => ({
     id: uid('col'),
@@ -182,7 +164,10 @@ function initializeFromDataset(): void {
       : Object.keys(parsedRows[0] ?? {}).map((key, index) => ({
           id: uid('col'),
           name: key || `Column ${index + 1}`,
-          type: detectType(parsedRows.map((row) => String(row[key] ?? ''))),
+          type: (() => {
+            const detected = detectColumnType(key, parsedRows.map((row) => row[key]))
+            return detected === 'numeric' ? 'number' : detected === 'time' ? 'date' : 'category'
+          })(),
         }))
 
     columns.value = normalizedColumns.length > 0
@@ -414,9 +399,10 @@ async function pasteFromClipboard(): Promise<void> {
 function detectAllColumnTypes(): void {
   columns.value = columns.value.map((column, colIndex) => {
     const values = rows.value.map((row) => row[colIndex] ?? '')
+    const detected = detectColumnType(column.name, values)
     return {
       ...column,
-      type: detectType(values),
+      type: detected === 'numeric' ? 'number' : detected === 'time' ? 'date' : 'category',
     }
   })
 }
@@ -486,30 +472,22 @@ function buildRowsForSave(): Array<Record<string, unknown>> {
 }
 
 function suggestBinding(): { chartType: string; category?: string; value?: string; series?: string } {
-  const categoryCol = columns.value.find((column) => column.type === 'category')
-  const dateCol = columns.value.find((column) => column.type === 'date')
-  const numberCol = columns.value.find((column) => column.type === 'number')
+  const normalizedRows = buildRowsForSave()
+  const suggestion = suggestCharts(analyzeDataset(normalizedRows), normalizedRows)[0]
 
-  if (dateCol && numberCol) {
-    return {
-      chartType: 'line',
-      category: dateCol.name,
-      value: numberCol.name,
-    }
-  }
-
-  if (categoryCol && numberCol) {
+  if (!suggestion) {
     return {
       chartType: 'bar',
-      category: categoryCol.name,
-      value: numberCol.name,
+      category: columns.value[0]?.name,
+      value: columns.value[1]?.name ?? columns.value[0]?.name,
     }
   }
 
   return {
-    chartType: 'bar',
-    category: columns.value[0]?.name,
-    value: columns.value[1]?.name ?? columns.value[0]?.name,
+    chartType: suggestion.type,
+    category: suggestion.encoding.category,
+    value: suggestion.encoding.value,
+    series: suggestion.encoding.series,
   }
 }
 

@@ -128,8 +128,8 @@ onBeforeUnmount(() => {
         <div class="nav-right">
           <div class="nav-links">
           <RouterLink to="/projects" class="nav-link" active-class="active">Projects</RouterLink>
-          <RouterLink v-if="hasSelectedProject" to="/charts" class="nav-link" active-class="active">Charts</RouterLink>
           <RouterLink v-if="hasSelectedProject" to="/datasets" class="nav-link" active-class="active">Datasets</RouterLink>
+          <RouterLink v-if="hasSelectedProject" to="/charts" class="nav-link" active-class="active">Charts</RouterLink>
           <RouterLink v-if="hasSelectedProject" to="/report" class="nav-link" active-class="active">Reports</RouterLink>
           <RouterLink v-if="canAccessAdmin" to="/admin" class="nav-link" active-class="active">Admin</RouterLink>
           </div>

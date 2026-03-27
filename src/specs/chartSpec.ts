@@ -4,6 +4,7 @@ import type { DataQuery } from "../data/providers/DataProvider";
 export const chartTypeValues = [
   "bar",
   "line",
+  "multi-line",
   "bubble",
   "area",
   "dotDonut",

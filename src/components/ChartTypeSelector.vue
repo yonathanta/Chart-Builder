@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from "vue";
 import type { ChartType } from "../specs/chartSpec";
 
 const props = defineProps<{
@@ -24,6 +25,7 @@ const tiles: Tile[] = [
   { key: "bar-grouped", label: "Grouped Bars", type: "bar", enabled: true, icon: "M4 18h3V6H4v12zm4 0h3V10H8v8zm5 0h3V6h-3v12zm4 0h3V12h-3v6z" },
   { key: "column-stacked", label: "Stacked Columns", type: "stackedBar", enabled: true, icon: "M5 18h3v-4H5v4zm0-6h3V6H5v6zm5 6h3v-6h-3v6zm5 0h3v-8h-3v8z" },
   { key: "lines", label: "Lines", type: "line", enabled: true, icon: "M4 16l4-4 4 3 4-6 2 2" },
+  { key: "multi-lines", label: "Multi-Line", type: "multi-line", enabled: true, icon: "M3 16l4-4 3 2 4-6 3 4M3 13l4-2 3 3 4-4 3 1" },
   { key: "area", label: "Area Chart", type: "area", enabled: true, icon: "M4 16l4-4 3 1 5-6 4 5v4H4z" },
   { key: "bubble", label: "Bubble Chart", type: "bubble", enabled: true, icon: "M12 4a8 8 0 100 16 8 8 0 000-16z" },
   { key: "scatter", label: "Scatter Plot", type: "scatter", enabled: true, icon: "M6 14h2v2H6v-2zm4-6h2v2h-2V8zm5 3h2v2h-2v-2zm-8-3h2v2H7V8z" },
@@ -33,9 +35,34 @@ const tiles: Tile[] = [
   { key: "orbit-donut", label: "Multiple Pies", type: "orbitDonut", enabled: true, icon: "M7 7a4 4 0 100 8 4 4 0 000-8zm10-2a4 4 0 100 8 4 4 0 000-8z" },
 ];
 
+const activeTileKey = ref<string | null>(null);
+
+watch(
+  () => props.selected,
+  (selectedType) => {
+    if (!selectedType) {
+      activeTileKey.value = null;
+      return;
+    }
+
+    const currentActive = activeTileKey.value
+      ? tiles.find((tile) => tile.key === activeTileKey.value)
+      : undefined;
+
+    if (currentActive && currentActive.type === selectedType) {
+      return;
+    }
+
+    const firstMatch = tiles.find((tile) => tile.type === selectedType);
+    activeTileKey.value = firstMatch?.key ?? null;
+  },
+  { immediate: true }
+);
+
 function onClick(tile: Tile) {
   if (!tile.enabled) return;
   if (tile.type === "unsupported") return;
+  activeTileKey.value = tile.key;
   emit("select", tile.type as ChartType);
   // Suggest preset changes for supported categories
   if (tile.type === "bar") {
@@ -61,7 +88,7 @@ function onClick(tile: Tile) {
       v-for="tile in tiles"
       :key="tile.key"
       class="type-tile"
-      :class="{ 'type-tile--active': tile.type !== 'unsupported' && tile.type === selected, 'type-tile--disabled': !tile.enabled || tile.type === 'unsupported' }"
+      :class="{ 'type-tile--active': tile.key === activeTileKey, 'type-tile--disabled': !tile.enabled || tile.type === 'unsupported' }"
       type="button"
       :title="tile.enabled ? tile.label : tile.label + ' (coming soon)'"
       @click="onClick(tile)"
