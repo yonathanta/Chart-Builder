@@ -142,7 +142,7 @@ const activeTransformBlockId = ref('')
 const reportZoomPercent = ref(100)
 
 const quickInsertBlocks: Array<{
-  kind: 'title' | 'subtitle' | 'paragraph' | 'image' | 'video'
+  kind: 'title' | 'subtitle' | 'paragraph' | 'image'
   label: string
   icon: string
 }> = [
@@ -150,7 +150,6 @@ const quickInsertBlocks: Array<{
   { kind: 'subtitle', label: 'Subtitle', icon: 'ST' },
   { kind: 'paragraph', label: 'Paragraph', icon: 'P' },
   { kind: 'image', label: 'Image', icon: 'IMG' },
-  { kind: 'video', label: 'Video', icon: 'VID' },
 ]
 
 const paragraphFontSizeOptions = [12, 13, 14, 15, 16, 18, 20, 22, 24]
@@ -1035,7 +1034,7 @@ async function handleReportDrop(event: DragEvent): Promise<void> {
   await addChart(chartId)
 }
 
-function addContentBlock(kind: 'title' | 'subtitle' | 'paragraph' | 'image' | 'video'): void {
+function addContentBlock(kind: 'title' | 'subtitle' | 'paragraph' | 'image'): void {
   if (!selectedReportId.value) {
     setMessage('Select a report first.')
     return
@@ -2463,13 +2462,14 @@ onBeforeUnmount(() => {
                     class="text-input"
                     :value="block.mediaUrl || ''"
                     type="text"
-                    :placeholder="block.kind === 'image' ? 'Image URL or upload file' : 'Video URL or upload file'"
+                    :placeholder="block.kind === 'image' ? 'Image URL or upload file' : 'Video URL'"
                     @input="updateBlockMedia(block.id, ($event.target as HTMLInputElement).value)"
                   />
                   <input
+                    v-if="block.kind === 'image'"
                     class="file-input"
                     type="file"
-                    :accept="block.kind === 'image' ? 'image/*' : 'video/*'"
+                    accept="image/*"
                     @change="handleMediaUpload(block.id, $event)"
                   />
                 </div>

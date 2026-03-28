@@ -9,6 +9,7 @@ export type LineChartConfig = {
   // Scales
   xKey: string;
   yKey: string;
+  seriesField?: string;
   xType?: 'time' | 'linear' | 'category';
   yType?: 'linear';
   xFormat?: string; // date format if time
@@ -22,6 +23,8 @@ export type LineChartConfig = {
   // Axis Options
   showXAxis?: boolean;
   showYAxis?: boolean;
+  showLegend?: boolean;
+  legendPosition?: 'top' | 'bottom' | 'left' | 'right';
   xTicks?: number;
   yTicks?: number;
   xTickFormat?: string | ((d: any) => string);
@@ -73,6 +76,8 @@ const DEFAULTS: Required<Omit<LineChartConfig,
   // Axes
   showXAxis: true,
   showYAxis: true,
+  showLegend: true,
+  legendPosition: 'right',
   xTicks: 6,
   yTicks: 5,
   xTickFormat: undefined,
@@ -145,7 +150,9 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
 
   // Parse helpers
   const parseTime = cfg.xType === 'time' && cfg.xFormat ? d3.timeParse(cfg.xFormat) : undefined;
-  const timeFormatterBase = cfg.xFormat ? d3.timeFormat(cfg.xFormat) : undefined;
+  const parseYear = d3.timeParse('%Y');
+  let timeFormatter = cfg.xFormat ? d3.timeFormat(cfg.xFormat) : undefined;
+  let detectedYearOnlyAxis = false;
   const numFormatter = (fmt?: string | ((d: any) => string)) =>
     typeof fmt === 'function' ? fmt : (fmt ? d3.format(fmt) : (d: any) => `${d}`);
 
@@ -158,12 +165,49 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
 
   function preprocess(source: any[]): any[] {
     const arr = (source || []).slice();
-    if (cfg.xType === 'time' && parseTime) {
+    if (cfg.xType === 'time') {
+      let yearLikeCount = 0;
+      let sampledCount = 0;
+
       arr.forEach(d => {
         const raw = d[cfg.xKey];
-        const dt = raw instanceof Date ? raw : parseTime(String(raw));
+        const rawString = String(raw ?? '').trim();
+        let dt: Date | null = null;
+
+        if (raw instanceof Date) {
+          dt = raw;
+        } else {
+          if (parseTime) {
+            dt = parseTime(rawString);
+          }
+
+          if (!dt && /^\d{4}$/.test(rawString)) {
+            dt = parseYear(rawString);
+          }
+
+          if (!dt) {
+            const native = new Date(rawString);
+            if (!Number.isNaN(native.getTime())) {
+              dt = native;
+            }
+          }
+        }
+
+        if (rawString.length > 0) {
+          sampledCount += 1;
+          if (/^\d{4}$/.test(rawString)) {
+            yearLikeCount += 1;
+          }
+        }
+
         d.__xDate = dt as Date | null;
       });
+
+      detectedYearOnlyAxis = sampledCount > 0 && yearLikeCount / sampledCount >= 0.8;
+      if (detectedYearOnlyAxis && !cfg.xTickFormat) {
+        timeFormatter = d3.timeFormat('%Y');
+      }
+
       // Auto-fallback if no valid dates parsed
       const validDates = arr.filter(d => d.__xDate instanceof Date);
       if (validDates.length === 0) {
@@ -274,6 +318,7 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
   const yAxisLayer = g.append('g').attr('class', 'y-axis');
   const lineLayer = g.append('g').attr('class', 'lines');
   const pointsLayer = g.append('g').attr('class', 'points');
+  const legendLayer = g.append('g').attr('class', 'legend');
 
   // Tooltip
   const enableTooltip = !!cfg.tooltip;
@@ -329,6 +374,96 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
     })
     .y((d: any) => coalesceNum((yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey])));
 
+  const seriesField = cfg.seriesField;
+  const seriesColorScale = d3.scaleOrdinal<string, string>(d3.schemeTableau10);
+
+  function getSeriesKey(d: any): string {
+    if (!seriesField) {
+      return '__single__';
+    }
+
+    const value = d?.[seriesField];
+    return value === undefined || value === null || value === '' ? 'Unknown' : String(value);
+  }
+
+  function getXSortValue(d: any): number | string {
+    if (currentXType === 'time') {
+      const dt = d?.__xDate as Date | null | undefined;
+      return dt instanceof Date ? dt.getTime() : Number.NEGATIVE_INFINITY;
+    }
+
+    if (currentXType === 'linear') {
+      const num = Number(d?.[cfg.xKey]);
+      return Number.isFinite(num) ? num : Number.NEGATIVE_INFINITY;
+    }
+
+    return String(d?.[cfg.xKey] ?? '');
+  }
+
+  function compareByX(a: any, b: any): number {
+    const left = getXSortValue(a);
+    const right = getXSortValue(b);
+
+    if (typeof left === 'string' && typeof right === 'string') {
+      return left.localeCompare(right);
+    }
+
+    return Number(left) - Number(right);
+  }
+
+  function getXBucketKey(d: any): string {
+    if (currentXType === 'time') {
+      const dt = d?.__xDate as Date | null | undefined;
+      return dt instanceof Date ? String(dt.getTime()) : String(d?.[cfg.xKey] ?? '');
+    }
+
+    if (currentXType === 'linear') {
+      const num = Number(d?.[cfg.xKey]);
+      return Number.isFinite(num) ? String(num) : String(d?.[cfg.xKey] ?? '');
+    }
+
+    return String(d?.[cfg.xKey] ?? '');
+  }
+
+  function aggregateSeriesValues(values: any[]): any[] {
+    const groupedByX = d3.group(values, (d: any) => getXBucketKey(d));
+
+    return Array.from(groupedByX.values())
+      .map((rows) => {
+        const numericRows = rows.filter((row: any) => isNumber(+row[cfg.yKey]));
+        if (numericRows.length === 0) {
+          return null;
+        }
+
+        const meanY = d3.mean(numericRows, (row: any) => +row[cfg.yKey]);
+        const base = { ...numericRows[0] };
+        base[cfg.yKey] = meanY;
+        return base;
+      })
+      .filter((row): row is any => row !== null)
+      .sort(compareByX);
+  }
+
+  function buildSeries(arr: any[]): Array<{ key: string; values: any[] }> {
+    if (!seriesField) {
+      return [{ key: '__single__', values: aggregateSeriesValues(arr) }];
+    }
+
+    const grouped = d3.group(arr, (d: any) => getSeriesKey(d));
+    return Array.from(grouped, ([key, values]) => ({
+      key,
+      values: aggregateSeriesValues(values),
+    }));
+  }
+
+  function getSeriesColor(key: string): string {
+    if (!seriesField) {
+      return cfg.lineColor || DEFAULTS.lineColor;
+    }
+
+    return seriesColorScale(key);
+  }
+
   // Preprocess and set scales are now moved to initialization, we only update scales here for resizing/updates
   function updateScales(arr: any[]) {
     // X scale
@@ -354,7 +489,6 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
     // X Axis
     if (cfg.showXAxis) {
       let ax = d3.axisBottom(xScale as any).ticks(cfg.xTicks || DEFAULTS.xTicks);
-      const timeFormatter = timeFormatterBase;
       if (cfg.xTickFormat) {
         if (typeof cfg.xTickFormat === 'function') ax = ax.tickFormat(cfg.xTickFormat as any);
         else if (currentXType === 'time' && timeFormatter) ax = ax.tickFormat((d: any) => timeFormatter!(d as Date));
@@ -392,16 +526,17 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
   }
 
   function renderLine(arr: any[]) {
-    const path = lineLayer.selectAll('path.line').data([arr]);
+    const series = buildSeries(arr);
+    const path = lineLayer.selectAll('path.line').data(series as any, (d: any) => d.key);
 
     // ENTER
     path.enter()
       .append('path')
       .attr('class', 'line')
       .attr('fill', 'none')
-      .attr('stroke', cfg.lineColor || DEFAULTS.lineColor)
+      .attr('stroke', (d: any) => getSeriesColor(d.key))
       .attr('stroke-width', cfg.lineWidth || DEFAULTS.lineWidth)
-      .attr('d', lineGen as any)
+      .attr('d', (d: any) => lineGen(d.values) as string)
       .each(function () {
         if (!cfg.animate) return;
         const totalLength = (this as SVGPathElement).getTotalLength();
@@ -416,38 +551,49 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
 
     // UPDATE
     path
-      .attr('stroke', cfg.lineColor || DEFAULTS.lineColor)
+      .attr('stroke', (d: any) => getSeriesColor(d.key))
       .attr('stroke-width', cfg.lineWidth || DEFAULTS.lineWidth)
       .transition()
       .duration(cfg.animate ? (cfg.duration || DEFAULTS.duration) : 0)
       .ease(d3.easeCubicOut)
-      .attr('d', lineGen as any);
+      .attr('d', (d: any) => lineGen(d.values) as string);
 
     // EXIT
     path.exit().remove();
   }
 
   function renderPoints(arr: any[]) {
+    const series = buildSeries(arr);
     const show = !!cfg.showPoints;
-    const sel = pointsLayer.selectAll('circle.point').data(show ? arr.filter((d: any) => lineGen.defined()(d)) : [], (d: any) => String(d[cfg.xKey]));
+    const pointRows = show
+      ? series.flatMap((group) =>
+          group.values
+            .filter((d: any) => lineGen.defined()(d))
+            .map((d: any) => ({ datum: d, key: group.key }))
+        )
+      : [];
+
+    const sel = pointsLayer
+      .selectAll('circle.point')
+      .data(pointRows as any, (d: any) => `${d.key}::${String(d.datum[cfg.xKey])}::${String(d.datum[cfg.yKey])}`);
 
     // ENTER
     const entered = sel.enter()
       .append('circle')
       .attr('class', 'point')
       .attr('r', cfg.pointRadius || DEFAULTS.pointRadius)
-      .attr('fill', cfg.lineColor || DEFAULTS.lineColor)
+      .attr('fill', (d: any) => getSeriesColor(d.key))
       .attr('stroke', '#fff')
       .attr('stroke-width', 1.2)
       .attr('cx', (d: any) => {
-        const xv = d[cfg.xKey];
-        if (currentXType === 'time') return coalesceNum((xScale as d3.ScaleTime<number, number>)(d.__xDate as Date));
+        const xv = d.datum[cfg.xKey];
+        if (currentXType === 'time') return coalesceNum((xScale as d3.ScaleTime<number, number>)(d.datum.__xDate as Date));
         if (currentXType === 'linear') return coalesceNum((xScale as d3.ScaleLinear<number, number>)(+xv));
         return coalesceNum((xScale as d3.ScalePoint<string>)(String(xv)) as number);
       })
-      .attr('cy', (d: any) => coalesceNum((yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey])))
+      .attr('cy', (d: any) => coalesceNum((yScale as d3.ScaleLinear<number, number>)(+d.datum[cfg.yKey])))
       .on('mouseover', function () { d3.select(this).attr('fill', cfg.hoverColor || DEFAULTS.hoverColor); })
-      .on('mouseout', function () { d3.select(this).attr('fill', cfg.lineColor || DEFAULTS.lineColor); });
+      .on('mouseout', function (_event: any, d: any) { d3.select(this).attr('fill', getSeriesColor(d.key)); });
 
     // UPDATE
     const merged = sel.merge(entered as any);
@@ -455,78 +601,142 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
       .duration(cfg.animate ? (cfg.duration || DEFAULTS.duration) : 0)
       .ease(d3.easeCubicOut)
       .attr('r', cfg.pointRadius || DEFAULTS.pointRadius)
-      .attr('fill', cfg.lineColor || DEFAULTS.lineColor)
+      .attr('fill', (d: any) => getSeriesColor(d.key))
       .attr('cx', (d: any) => {
-        const xv = d[cfg.xKey];
-        if (currentXType === 'time') return coalesceNum((xScale as d3.ScaleTime<number, number>)(d.__xDate as Date));
+        const xv = d.datum[cfg.xKey];
+        if (currentXType === 'time') return coalesceNum((xScale as d3.ScaleTime<number, number>)(d.datum.__xDate as Date));
         if (currentXType === 'linear') return coalesceNum((xScale as d3.ScaleLinear<number, number>)(+xv));
         return coalesceNum((xScale as d3.ScalePoint<string>)(String(xv)) as number);
       })
-      .attr('cy', (d: any) => coalesceNum((yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey])));
+      .attr('cy', (d: any) => coalesceNum((yScale as d3.ScaleLinear<number, number>)(+d.datum[cfg.yKey])));
 
     // EXIT
     sel.exit().remove();
   }
 
+  function renderLegend(arr: any[]) {
+    legendLayer.selectAll('*').remove();
+
+    if (!seriesField || cfg.showLegend === false) {
+      return;
+    }
+
+    const seriesKeys = Array.from(new Set(arr.map((d: any) => getSeriesKey(d))));
+    if (seriesKeys.length <= 1) {
+      return;
+    }
+
+    const legendItems = legendLayer
+      .selectAll('g.legend-item')
+      .data(seriesKeys)
+      .enter()
+      .append('g')
+      .attr('class', 'legend-item')
+      .attr('transform', (_d, i) => `translate(${i * 130}, 0)`);
+
+    legendItems
+      .append('line')
+      .attr('x1', 0)
+      .attr('x2', 20)
+      .attr('y1', 0)
+      .attr('y2', 0)
+      .attr('stroke', (d) => getSeriesColor(d))
+      .attr('stroke-width', Math.max(2, cfg.lineWidth || DEFAULTS.lineWidth));
+
+    legendItems
+      .append('text')
+      .attr('x', 26)
+      .attr('y', 4)
+      .style('font-size', '11px')
+      .style('fill', '#334155')
+      .text((d) => d);
+
+    const position = cfg.legendPosition ?? 'right';
+    const itemHeight = 18;
+    const itemWidth = 130;
+
+    if (position === 'left' || position === 'right') {
+      legendItems.attr('transform', (_d, i) => `translate(0, ${i * itemHeight})`);
+    }
+
+    if (position === 'top') {
+      legendLayer.attr('transform', 'translate(0, 10)');
+      return;
+    }
+
+    if (position === 'bottom') {
+      const blockHeight = itemHeight;
+      legendLayer.attr('transform', `translate(0, ${Math.max(10, innerHeight - blockHeight - 6)})`);
+      return;
+    }
+
+    if (position === 'left') {
+      legendLayer.attr('transform', 'translate(0, 10)');
+      return;
+    }
+
+    // right
+    legendLayer.attr('transform', `translate(${Math.max(0, innerWidth - itemWidth)}, 10)`);
+  }
+
   function pointerHandlers(arr: any[]) {
     if (!enableTooltip) return;
 
-    const timeFormatter = timeFormatterBase;
     const formatX = currentXType === 'time' && timeFormatter
       ? (d: any) => timeFormatter!(d as Date)
       : (cfg.xTickFormat ? numFormatter(cfg.xTickFormat) : (d: any) => `${d}`);
     const formatY = cfg.yTickFormat ? numFormatter(cfg.yTickFormat) : (d: any) => `${d}`;
 
-    const bisect = currentXType !== 'category' ? d3.bisector((d: any) => (currentXType === 'time' ? (d.__xDate as Date).getTime() : +d[cfg.xKey])).left : null;
+    const pointRows = buildSeries(arr).flatMap((group) =>
+      group.values
+        .filter((d: any) => lineGen.defined()(d))
+        .map((d: any) => ({
+          datum: d,
+          key: group.key,
+          x: (() => {
+            const xv = d[cfg.xKey];
+            if (currentXType === 'time') return coalesceNum((xScale as d3.ScaleTime<number, number>)(d.__xDate as Date));
+            if (currentXType === 'linear') return coalesceNum((xScale as d3.ScaleLinear<number, number>)(+xv));
+            return coalesceNum((xScale as d3.ScalePoint<string>)(String(xv)) as number);
+          })(),
+          y: coalesceNum((yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey])),
+        }))
+    );
 
     overlay
       .on('mousemove', function (event) {
         if (!tooltipEl) return;
         const [mx, my] = d3.pointer(event, this as any);
 
-        let nearest: any | null = null;
-        if (currentXType === 'category') {
-          // For categories, find the closest category by x distance.
-          const pts = arr.map(d => {
-            const x = (xScale as d3.ScalePoint<string>)(String(d[cfg.xKey])) as number;
-            const y = (yScale as d3.ScaleLinear<number, number>)(+d[cfg.yKey]);
-            return { d, x, y, dx: Math.abs(mx - x) };
-          });
-          pts.sort((a, b) => a.dx - b.dx);
-          nearest = pts[0]?.d || null;
-        } else {
-          // time or linear
-          const getXVal = (d: any) => currentXType === 'time' ? (d.__xDate as Date).getTime() : +d[cfg.xKey];
-          const xArr = arr.map(getXVal);
-          const idx = bisect!(xArr as any, currentXType === 'time' ? (xScale as any).invert(mx).getTime() : (xScale as any).invert(mx));
-          const i0 = Math.max(0, idx - 1);
-          const i1 = Math.min(arr.length - 1, idx);
-          const d0 = arr[i0];
-          const d1 = arr[i1];
-          nearest = (!d1 || (mx - xPos(d0)) < (xPos(d1) - mx)) ? d0 : d1;
+        let nearest: { datum: any; key: string; x: number; y: number } | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        for (const point of pointRows) {
+          const dx = mx - point.x;
+          const dy = my - point.y;
+          const distance = (dx * dx) + (dy * dy);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            nearest = point;
+          }
         }
 
         if (!nearest) return;
-        const xv = nearest[cfg.xKey];
         // Place tooltip near cursor for better readability
         tooltipEl.style.left = `${margins.left + mx}px`;
         tooltipEl.style.top = `${margins.top + my}px`;
-        const xLabel = cfg.xType === 'time' ? (nearest.__xDate as Date) : xv;
-        const fallback = `<div><strong>${formatX(xLabel)}</strong></div><div>${formatY(+nearest[cfg.yKey])}</div>`;
-        tooltipEl.innerHTML = cfg.tooltipFormat ? cfg.tooltipFormat(nearest) : fallback;
+        const datum = nearest.datum;
+        const xv = datum[cfg.xKey];
+        const xLabel = currentXType === 'time' ? (datum.__xDate as Date) : xv;
+        const seriesLabel = seriesField ? `<div><strong>${nearest.key}</strong></div>` : '';
+        const fallback = `${seriesLabel}<div>${formatX(xLabel)}: ${formatY(+datum[cfg.yKey])}</div>`;
+        tooltipEl.innerHTML = cfg.tooltipFormat ? cfg.tooltipFormat(datum) : fallback;
         tooltipEl.style.opacity = '1';
       })
       .on('mouseout', function () {
         if (!tooltipEl) return;
         tooltipEl.style.opacity = '0';
       });
-
-    function xPos(d: any) {
-      const xv = d[cfg.xKey];
-      if (currentXType === 'time') return coalesceNum((xScale as d3.ScaleTime<number, number>)(d.__xDate as Date));
-      if (currentXType === 'linear') return coalesceNum((xScale as d3.ScaleLinear<number, number>)(+xv));
-      return coalesceNum((xScale as d3.ScalePoint<string>)(String(xv)) as number);
-    }
   }
 
   function draw() {
@@ -538,6 +748,7 @@ export function createLineChart(container: ContainerLike, data: any[], config: L
     renderAxes();
     renderLine(arr);
     renderPoints(arr);
+    renderLegend(arr);
     pointerHandlers(arr);
   }
 

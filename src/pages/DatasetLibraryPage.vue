@@ -223,10 +223,20 @@ async function handleOpenDataset(): Promise<void> {
   }
 }
 
-function handleUseDataset(dataset: DatasetRecord): void {
+function handleCreateChartFromDataset(dataset: DatasetRecord): void {
   selectedDatasetId.value = dataset.id
   persistDatasetSelection(currentProjectId.value, dataset)
-  setMessage(`Dataset selected: ${dataset.name}`)
+
+  const query: Record<string, string> = {
+    datasetId: dataset.id,
+    autoload: '1',
+  }
+
+  if (currentProjectId.value) {
+    query.projectId = currentProjectId.value
+  }
+
+  router.push({ path: '/charts', query })
 }
 
 async function handleEditDataset(dataset: DatasetRecord): Promise<void> {
@@ -436,7 +446,7 @@ watch(
             <td>{{ lastModified(dataset) }}</td>
             <td>
               <div class="row-actions">
-                <button class="small" @click="handleUseDataset(dataset)">Use</button>
+                <button class="small" @click="handleCreateChartFromDataset(dataset)">Create chart</button>
                 <button class="small" @click="handleEditDataset(dataset)">Edit</button>
                 <button class="small" @click="handleDuplicateDataset(dataset)">Duplicate</button>
                 <button class="small danger" @click="handleDeleteDataset(dataset)">Delete</button>

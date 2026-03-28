@@ -23,9 +23,7 @@ const tiles: Tile[] = [
   { key: "bar", label: "Bar Chart", type: "bar", enabled: true, icon: "M4 18h4V6H4v12zm6 0h4V10h-4v8zm6 0h4V14h-4v4z" },
   { key: "bar-stacked", label: "Stacked Bars", type: "stackedBar", enabled: true, icon: "M4 18h4v-4H4v4zm0-6h4V6H4v6zm6 6h4v-6h-4v6zm6 0h4v-8h-4v8z" },
   { key: "bar-grouped", label: "Grouped Bars", type: "bar", enabled: true, icon: "M4 18h3V6H4v12zm4 0h3V10H8v8zm5 0h3V6h-3v12zm4 0h3V12h-3v6z" },
-  { key: "column-stacked", label: "Stacked Columns", type: "stackedBar", enabled: true, icon: "M5 18h3v-4H5v4zm0-6h3V6H5v6zm5 6h3v-6h-3v6zm5 0h3v-8h-3v8z" },
   { key: "lines", label: "Lines", type: "line", enabled: true, icon: "M4 16l4-4 4 3 4-6 2 2" },
-  { key: "multi-lines", label: "Multi-Line", type: "multi-line", enabled: true, icon: "M3 16l4-4 3 2 4-6 3 4M3 13l4-2 3 3 4-4 3 1" },
   { key: "area", label: "Area Chart", type: "area", enabled: true, icon: "M4 16l4-4 3 1 5-6 4 5v4H4z" },
   { key: "bubble", label: "Bubble Chart", type: "bubble", enabled: true, icon: "M12 4a8 8 0 100 16 8 8 0 000-16z" },
   { key: "scatter", label: "Scatter Plot", type: "scatter", enabled: true, icon: "M6 14h2v2H6v-2zm4-6h2v2h-2V8zm5 3h2v2h-2v-2zm-8-3h2v2H7V8z" },
@@ -70,7 +68,6 @@ function onClick(tile: Tile) {
       bar: { layoutPreset: "vertical", mode: "simple" },
       "bar-stacked": { layoutPreset: "horizontal", mode: "stacked" },
       "bar-grouped": { layoutPreset: "horizontal", mode: "grouped" },
-      "column-stacked": { layoutPreset: "vertical", mode: "stacked" },
     };
     const preset = map[tile.key];
     if (preset) emit("preset", { type: tile.type as ChartType, layoutPreset: preset.layoutPreset, mode: preset.mode });

@@ -432,6 +432,7 @@ function isSupportedChartType(type: string): type is ChartSpec['type'] {
   return [
     'bar',
     'line',
+    'multi-line',
     'area',
     'stackedArea',
     'stackedBar',
@@ -1162,7 +1163,7 @@ function applyRowsToSpec(rows: Record<string, unknown>[], overrides?: {
     style: overrides?.styleMode ? { ...(spec.value.style ?? {}), mode: overrides.styleMode } : spec.value.style,
   };
 
-  if (overrides?.type === "line") {
+  if (overrides?.type === "line" || overrides?.type === "multi-line") {
     lineConfig.value = {
       ...lineConfig.value,
       xType: overrides.xAxisType ?? lineConfig.value?.xType,
@@ -1649,7 +1650,7 @@ async function handleDeleteSavedChart(chartId: string): Promise<void> {
   }
 }
 
-const exportFormats: ExportFormat[] = ["svg", "png", "pdf", "html", "spec-json", "project-json"];
+const exportFormats: ExportFormat[] = ["svg", "png", "pdf", "html"];
 const projectInputRef = ref<HTMLInputElement | null>(null);
 
 const shareOpen = ref(false);
@@ -1854,6 +1855,128 @@ onBeforeRouteLeave(async () => {
 function updateType(type: ChartSpec["type"]) {
   appliedRecommendationId.value = null;
   selectedChartType.value = type;
+
+  if (type === 'multi-line') {
+    const sourceRows = sourceDatasetRows.value;
+    const keys = Object.keys(sourceRows[0] ?? {});
+    const currentCategoryField = spec.value.encoding.category.field;
+    const categoryField = keys.includes(currentCategoryField) ? currentCategoryField : (keys[0] ?? 'category');
+    const currentSeriesField = spec.value.encoding.series?.field;
+    const currentValueField = spec.value.encoding.value.field;
+
+    const isNumericValue = (value: unknown): boolean => {
+      if (typeof value === 'number') {
+        return Number.isFinite(value);
+      }
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return false;
+        }
+        return Number.isFinite(Number(trimmed));
+      }
+
+      return false;
+    };
+
+    const fieldLooksDateLike = (field: string): boolean => {
+      const normalized = field.toLowerCase();
+      return normalized.includes('__xdate')
+        || normalized.includes('xdate')
+        || normalized.includes('date')
+        || normalized.includes('time')
+        || normalized.includes('year')
+        || normalized.includes('month')
+        || normalized.includes('quarter');
+    };
+
+    const dateField = keys.find((field) => fieldLooksDateLike(field));
+    const incomeField = keys.find((field) => field.toLowerCase().includes('income'));
+
+    const numericFields = keys.filter((field) => {
+      let sampleCount = 0;
+      let numericCount = 0;
+
+      for (const row of sourceRows.slice(0, 80)) {
+        if (!(field in row)) {
+          continue;
+        }
+
+        sampleCount += 1;
+        if (isNumericValue((row as Record<string, unknown>)[field])) {
+          numericCount += 1;
+        }
+      }
+
+      return sampleCount > 0 && numericCount / sampleCount >= 0.7;
+    });
+
+    const valueField = keys.includes(currentValueField)
+      ? currentValueField
+      : (numericFields.find((field) => field.toLowerCase() === 'value') ?? numericFields[0]);
+
+    const preferredSeriesField = incomeField
+      ?? (currentSeriesField && keys.includes(currentSeriesField) ? currentSeriesField : undefined);
+
+    if (sourceRows.length > 0 && dateField && preferredSeriesField && valueField && dateField !== preferredSeriesField) {
+      applyRowsToSpec(sourceRows, {
+        type: 'multi-line',
+        encoding: {
+          category: dateField,
+          value: valueField,
+          series: preferredSeriesField,
+        },
+        styleMode: 'grouped',
+        xAxisType: 'time',
+      });
+      return;
+    }
+
+    if (!currentSeriesField && sourceRows.length > 0 && keys.length > 1) {
+      const wideNumericFields = keys.filter((field) => {
+        if (field === categoryField) {
+          return false;
+        }
+
+        return numericFields.includes(field);
+      });
+
+      if (wideNumericFields.length > 1) {
+        const longRows: Record<string, unknown>[] = [];
+
+        for (const row of sourceRows) {
+          for (const fieldName of wideNumericFields) {
+            const rawValue = (row as Record<string, unknown>)[fieldName];
+            const numericValue = Number(rawValue);
+            if (!Number.isFinite(numericValue)) {
+              continue;
+            }
+
+            longRows.push({
+              [categoryField]: (row as Record<string, unknown>)[categoryField],
+              value: numericValue,
+              series: fieldName,
+            });
+          }
+        }
+
+        if (longRows.length > 0) {
+          applyRowsToSpec(longRows, {
+            type: 'multi-line',
+            encoding: {
+              category: categoryField,
+              value: 'value',
+              series: 'series',
+            },
+            styleMode: 'grouped',
+          });
+          return;
+        }
+      }
+    }
+  }
+
   // When switching to certain chart types, suggest sensible default layout presets.
   if (type === 'orbitDonut') {
     spec.value = { ...spec.value, type, layout: { ...spec.value.layout, preset: 'grid' } };
@@ -1874,8 +1997,8 @@ function updateType(type: ChartSpec["type"]) {
   }
   
   // Auto-merge/Validate config for the selected type
-  if (['line', 'area', 'stackedArea'].includes(type)) {
-      if (type === 'line') lineConfig.value = validateConfigForType('line', lineConfig.value);
+    if (['line', 'multi-line', 'area', 'stackedArea'].includes(type)) {
+      if (type === 'line' || type === 'multi-line') lineConfig.value = validateConfigForType('line', lineConfig.value);
       if (type === 'area') areaConfig.value = validateConfigForType('area', areaConfig.value);
       if (type === 'stackedArea') stackedAreaConfig.value = validateConfigForType('stackedArea', stackedAreaConfig.value);
   }
@@ -2282,7 +2405,7 @@ function toggleSidebar(): void {
               <span class="item-icon"> 
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </span>
-              <span class="item-label">{{ format === 'project-json' ? 'SAVE PROJECT' : format.toUpperCase() }}</span>
+              <span class="item-label">{{ format.toUpperCase() }}</span>
             </button>
           </div>
         </div>
@@ -2434,7 +2557,7 @@ function toggleSidebar(): void {
               <BarBuilderControls v-if="spec.type === 'bar'" :config="barConfig" :fields="dataFields" @update:config="updateBarConfig" />
               <StackedBarBuilderControls v-if="spec.type === 'stackedBar'" :config="stackedBarConfig" @update:config="updateStackedBarConfig" />
               <!-- New Modular Config Panels -->
-              <LineChartConfigPanel v-if="spec.type === 'line'" :config="lineConfig" @update:config="updateLineConfig" />
+              <LineChartConfigPanel v-if="spec.type === 'line' || spec.type === 'multi-line'" :config="lineConfig" @update:config="updateLineConfig" />
               <AreaChartConfigPanel v-if="spec.type === 'area'" :config="areaConfig" @update:config="updateAreaConfig" />
               <StackedAreaConfigPanel v-if="spec.type === 'stackedArea'" :config="stackedAreaConfig" @update:config="updateStackedAreaConfig" />
               

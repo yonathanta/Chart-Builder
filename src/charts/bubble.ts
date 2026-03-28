@@ -66,6 +66,8 @@ export function renderBubbleChart(
     const g = svg.append("g")
         .attr("transform", spec.title ? `translate(0, ${titlePadding})` : "");
     const center = { x: width / 2, y: availableHeight / 2 };
+    const plotPadding = 12;
+    const minDimension = Math.max(120, Math.min(width, availableHeight) - (plotPadding * 2));
 
     // Render Title
     if (spec.title) {
@@ -84,8 +86,20 @@ export function renderBubbleChart(
     // 3. Scales
     const maxVal = d3.max(nodes, d => d.value) || 1;
     const minVal = d3.min(nodes, d => d.value) || 0;
-    const rScale = d3.scaleSqrt().domain([0, maxVal]).range([8, 54]);
+    const rScale = d3.scaleSqrt()
+        .domain([0, maxVal])
+        .range([6, Math.max(16, Math.round(minDimension * 0.115))]);
     nodes.forEach(n => n.radius = rScale(n.value));
+
+    // Fit bubbles to available canvas area by adapting aggregate circle area.
+    const currentArea = d3.sum(nodes, n => Math.PI * n.radius * n.radius);
+    const targetArea = (minDimension * minDimension) * 0.36;
+    if (currentArea > 0) {
+        const scaleFactor = Math.max(0.45, Math.min(1.35, Math.sqrt(targetArea / currentArea)));
+        nodes.forEach(n => {
+            n.radius = Math.max(4, n.radius * scaleFactor);
+        });
+    }
 
     const topColorScale = d3.scaleLinear<string>().domain([0, 1]).range(topColorRange);
     const bottomColorScale = d3.scaleLinear<string>().domain([0, 1]).range(bottomColorRange);
@@ -164,13 +178,15 @@ export function renderBubbleChart(
     fitLabels();
 
     // 5. Simulation
-    const innerR = 0;
-    const middleR = Math.min(width, availableHeight) * 0.22;
-    const outerR = Math.min(width, availableHeight) * 0.38;
+    const maxRadius = d3.max(nodes, d => d.radius) || 0;
+    const maxOrbitRadius = Math.max(0, (minDimension / 2) - maxRadius - 6);
+    const innerR = Math.min(maxOrbitRadius * 0.18, Math.max(0, maxRadius * 0.25));
+    const middleR = Math.min(maxOrbitRadius * 0.56, maxOrbitRadius - 18);
+    const outerR = Math.min(maxOrbitRadius * 0.92, maxOrbitRadius);
 
     const simulation = d3.forceSimulation(nodes as any)
         .force("charge", d3.forceManyBody().strength(-12))
-        .force("collision", d3.forceCollide().radius((d: any) => d.radius + 8).iterations(1))
+        .force("collision", d3.forceCollide().radius((d: any) => d.radius + 4).iterations(2))
         .alphaDecay(0.02);
 
     function radialForce() {
@@ -194,6 +210,11 @@ export function renderBubbleChart(
 
     simulation.on("tick", () => {
         radialForce();
+        // Keep bubbles inside the chart frame so they always fit the canvas.
+        for (const node of nodes) {
+            node.x = Math.max(plotPadding + node.radius, Math.min(width - plotPadding - node.radius, node.x));
+            node.y = Math.max(plotPadding + node.radius, Math.min(availableHeight - plotPadding - node.radius, node.y));
+        }
         nodeG.attr("transform", d => `translate(${d.x},${d.y})`);
         fitLabels();
     });

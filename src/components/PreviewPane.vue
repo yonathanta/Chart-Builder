@@ -313,7 +313,7 @@ async function loadAndRender() {
       const numberFormat = resolveNumberFormat();
       renderBarChart(svg, props.spec, renderRows, { ...props.barConfig, numberFormat });
       status.value = "Rendered bar chart";
-    } else if (props.spec.type === "line") {
+    } else if (props.spec.type === "line" || props.spec.type === "multi-line") {
       // Hide the bar SVG and render line into the frame container
       svg.style.display = "none";
       if (!frameRef.value) throw new Error("No frame container for line chart");
@@ -327,6 +327,7 @@ async function loadAndRender() {
       const cfg: any = {
         xKey,
         yKey,
+        seriesField,
         xType: props.lineConfig?.axisConfig?.showXAxis ? (props.lineConfig?.dataConfig?.xType || 'time') : 'category',
         xFormat: props.lineConfig?.dataConfig?.xFormat || '%Y-%m-%d',
         yType: 'linear',
@@ -338,6 +339,8 @@ async function loadAndRender() {
         curveType: props.lineConfig?.lineStyle?.curveType || 'linear',
         showXAxis: props.lineConfig?.axisConfig?.showXAxis ?? true,
         showYAxis: props.lineConfig?.axisConfig?.showYAxis ?? true,
+        showLegend: props.lineConfig?.legendConfig?.enabled ?? true,
+        legendPosition: props.lineConfig?.legendConfig?.position ?? 'right',
         xTicks: 6,
         yTicks: 5,
         yTickFormat: (value: unknown) => formatNumber(value),
@@ -653,7 +656,7 @@ function renderWithCurrentRows() {
     }
     const numberFormat = resolveNumberFormat();
     renderBarChart(svgRef.value, props.spec, renderRows, { ...props.barConfig, numberFormat });
-  } else if (props.spec.type === "line" && frameRef.value) {
+  } else if ((props.spec.type === "line" || props.spec.type === "multi-line") && frameRef.value) {
     if (lineChart) { lineChart.destroy(); lineChart = null; }
     const xKey = props.spec.encoding.category.field;
     const yKey = props.spec.encoding.value.field;
@@ -662,6 +665,7 @@ function renderWithCurrentRows() {
     const cfg: LineChartConfig = {
       xKey,
       yKey,
+      seriesField: props.spec.encoding.series?.field,
       xType: props.lineConfig?.xType ?? 'time',
       xFormat: props.lineConfig?.xFormat ?? '%Y-%m-%d',
       yType: 'linear',
@@ -673,6 +677,8 @@ function renderWithCurrentRows() {
       curveType: props.lineConfig?.curveType ?? 'linear',
       showXAxis: props.lineConfig?.showXAxis ?? true,
       showYAxis: props.lineConfig?.showYAxis ?? true,
+      showLegend: props.lineConfig?.legendConfig?.enabled ?? true,
+      legendPosition: props.lineConfig?.legendConfig?.position ?? 'right',
       xTicks: props.lineConfig?.xTicks ?? 6,
       yTicks: props.lineConfig?.yTicks ?? 5,
       xTickFormat: props.lineConfig?.xTickFormat,
@@ -790,7 +796,7 @@ defineExpose({
   clearValueFilter,
   setValueFilters,
   getSvgEl: () => {
-    if (props.spec.type === 'line' || props.spec.type === 'area') {
+    if (props.spec.type === 'line' || props.spec.type === 'multi-line' || props.spec.type === 'area') {
       return frameRef.value?.querySelector('svg') as SVGSVGElement | null;
     }
     return svgRef.value;
